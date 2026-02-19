@@ -100,9 +100,11 @@ const COMPS_SEED = [
 ];
 const TOURS_SEED = [
   { id:"t1", pid:"p1", name:"Atlas Site Tour",   date:"Feb 14, 2025", status:"Scheduled",
-    contacts:[{id:"tc1",name:"Brett Hale",email:"brett@co.com",role:"CFO"},{id:"tc2",name:"Monica Patel",email:"monica@co.com",role:"VP Ops"}], comps:["c1","c2"] },
+    contacts:[{id:"tc1",name:"Brett Hale",email:"brett@co.com",role:"CFO"},{id:"tc2",name:"Monica Patel",email:"monica@co.com",role:"VP Ops"}],
+    comps:["c1","c2"], times:{c1:"9:00 AM", c2:"11:30 AM"} },
   { id:"t2", pid:"p2", name:"Titan Walkthrough", date:"Feb 20, 2025", status:"In Progress",
-    contacts:[{id:"tc3",name:"Derek Lim",email:"derek@co.com",role:"Director"}], comps:["c3"] },
+    contacts:[{id:"tc3",name:"Derek Lim",email:"derek@co.com",role:"Director"}],
+    comps:["c3"], times:{c3:"2:00 PM"} },
 ];
 const KSD = [
   {id:"ch",label:"Clear Height",    icon:"📐"},
@@ -696,13 +698,88 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   DOC ACTIONS (View / Share / Download)
+═══════════════════════════════════════════════════════ */
+function DocActions({name, onToast}) {
+  const btn = (icon, label, color, onPress) => (
+    <button onClick={e=>{e.stopPropagation();onPress();}} className="pressable"
+      style={{
+        display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+        background:"none",border:"none",cursor:"pointer",padding:"0 2px",
+      }}>
+      <div style={{
+        width:30,height:30,borderRadius:8,
+        background:`${color}22`,
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,
+      }}>{icon}</div>
+      <span style={{fontSize:9,fontWeight:600,color,letterSpacing:".01em"}}>{label}</span>
+    </button>
+  );
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6}}>
+      {btn("👁️","View",  iOS.blue,   ()=>onToast(`Viewing ${name}`))}
+      {btn("↗️","Share", iOS.indigo, ()=>onToast(`Sharing ${name}`))}
+      {btn("↓",  "Save",  iOS.teal,   ()=>onToast(`Downloading ${name}`))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   SITE SUB-NAV (segmented control)
+═══════════════════════════════════════════════════════ */
+function SiteSubNav({tab, setTab}) {
+  const TABS = [
+    {id:"photos",   icon:"📷", label:"Photos"    },
+    {id:"building", icon:"🏗️", label:"Building"  },
+    {id:"leases",   icon:"📄", label:"Leases"    },
+    {id:"util",     icon:"📈", label:"Utilization"},
+    {id:"docs",     icon:"🗂️", label:"Documents" },
+  ];
+  return (
+    <div style={{
+      flexShrink:0, padding:"8px 12px",
+      background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
+    }}>
+      <div style={{
+        display:"flex", background:iOS.bg3,
+        borderRadius:12, padding:3, height:40, alignItems:"center",
+      }}>
+        {TABS.map(t=>{
+          const active=tab===t.id;
+          return (
+            <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
+              style={{
+                flex:1, height:"100%", border:"none", borderRadius:9,
+                background:active?iOS.blue:"transparent",
+                color:active?"#ffffff":iOS.label2,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                flexDirection:"column", gap:1,
+                fontSize:9, fontWeight:active?600:400,
+                cursor:"pointer", transition:"background .18s, color .18s",
+                padding:"0 2px",
+              }}>
+              <span style={{fontSize:13}}>{t.icon}</span>
+              <span style={{whiteSpace:"nowrap",letterSpacing:"-.01em"}}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
    SITES
 ═══════════════════════════════════════════════════════ */
 function Sites({sites, setSites, toast}) {
   const [sel, setSel]=useState(null);
   const [sheet, setSheet]=useState(false);
   const [form, setForm]=useState({name:"",addr:"",type:"Owned",sqft:"",ch:"",status:"Active"});
+  const [siteTab,setSiteTab]=useState("building");
+  const [sitePhotos,setSitePhotos]=useState({}); // sitePhotos[siteId] = [{id,url,name}]
+  const siteFileRef=useRef(null);
   const site=sites.find(s=>s.id===sel);
+  useEffect(()=>{ setSiteTab("building"); },[sel]);
 
   const addSite=()=>{
     if(!form.name)return;
@@ -713,35 +790,300 @@ function Sites({sites, setSites, toast}) {
     toast("Site added");
   };
 
-  if(site) return (
-    <div style={{flex:1, display:"flex", flexDirection:"column", background:"#000", animation:"slideR .28s ease"}}>
-      <NavBar title={site.name} onBack={()=>setSel(null)} backLabel="Sites"/>
-      <div style={{flex:1, overflowY:"auto", padding:"16px 16px 32px"}}>
-        <Section header="Overview">
-          {[
-            {l:"Square Footage", v:site.sqft.toLocaleString()+" sqft"},
-            {l:"Clear Height",   v:site.ch+"'"},
-            {l:"Tenure",         v:site.type},
-            {l:"Last Visit",     v:site.last},
-            {l:"Status",         v:site.status},
-          ].map((d,i,arr)=>(
-            <ListRow key={d.l} title={d.l} right={<span style={{...T.subhead, color:iOS.label2}}>{d.v}</span>}
-              showChevron={false} last={i===arr.length-1}/>
-          ))}
-        </Section>
-        <Section header="Building Info">
-          {["Dock Doors: 24","Drive-In Doors: 4","Fire Suppression: ESFR","Power: 2,000A / 480V 3-Phase",
-            "Office Area: 4,200 sqft","Truck Court: 185 ft"].map((d,i,arr)=>(
-            <ListRow key={d} title={d} showChevron={false} last={i===arr.length-1}
-              left={<span style={{color:iOS.green}}>✓</span>}/>
-          ))}
-        </Section>
-        <Section header="Address">
-          <ListRow title={site.addr} showChevron={false} last/>
-        </Section>
+  if(site) {
+    const photos=sitePhotos[site.id]??[];
+    const handleSiteFiles=e=>{
+      const files=Array.from(e.target.files);
+      if(!files.length)return;
+      const items=files.map(f=>({
+        id:"sp"+Date.now()+Math.random().toString(36).slice(2),
+        type:f.type.startsWith("video/")?"video":"image",
+        url:URL.createObjectURL(f), name:f.name,
+      }));
+      setSitePhotos(prev=>({...prev,[site.id]:[...(prev[site.id]??[]),...items]}));
+      e.target.value="";
+    };
+    const removeSitePhoto=id=>setSitePhotos(prev=>({
+      ...prev,[site.id]:(prev[site.id]??[]).filter(p=>p.id!==id)
+    }));
+
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease"}}>
+        <NavBar title={site.name} onBack={()=>setSel(null)} backLabel="Sites"
+          rightItem={<Badge label={site.status} color={site.status==="Active"?iOS.green:iOS.orange}/>}/>
+
+        {/* Pinned sub-nav */}
+        <SiteSubNav tab={siteTab} setTab={setSiteTab}/>
+
+        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
+
+          {/* ══ PHOTOS ══ */}
+          {siteTab==="photos" && (
+            <div>
+              <input ref={siteFileRef} type="file" accept="image/*,video/*"
+                multiple style={{display:"none"}} onChange={handleSiteFiles}/>
+              {photos.length>0 && (
+                <div style={{
+                  display:"grid",gridTemplateColumns:"repeat(3,1fr)",
+                  gap:8,marginBottom:16,
+                }}>
+                  {photos.map(p=>(
+                    <div key={p.id} style={{
+                      position:"relative",aspectRatio:"1",
+                      borderRadius:10,overflow:"hidden",background:iOS.bg3,
+                    }}>
+                      {p.type==="image"
+                        ? <img src={p.url} alt={p.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",
+                            justifyContent:"center",background:iOS.bg4}}>
+                            <span style={{fontSize:24}}>▶</span>
+                          </div>
+                      }
+                      <button onClick={()=>removeSitePhoto(p.id)} style={{
+                        position:"absolute",top:4,right:4,width:22,height:22,
+                        borderRadius:"50%",background:"rgba(0,0,0,0.72)",
+                        border:"none",color:"#fff",fontSize:13,cursor:"pointer",
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                      }}>×</button>
+                      {p.type==="video" && (
+                        <div style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,0.62)",
+                          borderRadius:4,padding:"2px 5px",fontSize:9,color:"#fff",fontWeight:700}}>VIDEO</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {photos.length===0 && (
+                <div style={{
+                  background:iOS.bg2,borderRadius:14,padding:40,
+                  textAlign:"center",marginBottom:16,
+                  border:`1px dashed ${iOS.separator}`,
+                }}>
+                  <div style={{fontSize:44,marginBottom:12}}>📷</div>
+                  <div style={{...T.headline,marginBottom:6}}>No Photos Yet</div>
+                  <div style={{...T.footnote,color:iOS.label2}}>Add photos and videos of this site</div>
+                </div>
+              )}
+              <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>siteFileRef.current?.click()}>
+                📷 {photos.length>0?`${photos.length} file${photos.length>1?"s":""} · Add More`:"Add Photos & Videos"}
+              </IOSBtn>
+            </div>
+          )}
+
+          {/* ══ BUILDING INFO ══ */}
+          {siteTab==="building" && (
+            <div>
+              <Section header="Overview">
+                {[
+                  {l:"Square Footage", v:site.sqft.toLocaleString()+" sqft"},
+                  {l:"Clear Height",   v:site.ch+"'"},
+                  {l:"Tenure",         v:site.type},
+                  {l:"Last Visit",     v:site.last},
+                  {l:"Status",         v:site.status},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.l} title={d.l}
+                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Specifications">
+                {[
+                  {icon:"🚪",label:"Dock Doors",       val:"24"},
+                  {icon:"🚗",label:"Drive-In Doors",    val:"4"},
+                  {icon:"🔥",label:"Fire Suppression",  val:"ESFR"},
+                  {icon:"⚡",label:"Power",              val:"2,000A / 480V 3-Phase"},
+                  {icon:"🏢",label:"Office Area",        val:"4,200 sqft"},
+                  {icon:"🚛",label:"Truck Court",        val:"185 ft"},
+                  {icon:"🔲",label:"Column Spacing",     val:"52' × 50'"},
+                  {icon:"🛗", label:"Sprinkler System",  val:"ESFR K-25"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.label}
+                    left={<span style={{fontSize:18}}>{d.icon}</span>}
+                    title={d.label}
+                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Address">
+                <ListRow title={site.addr} showChevron={false} last/>
+              </Section>
+              <Section header="Zoning & Compliance">
+                {[
+                  {l:"Zoning",          v:"M-2 Heavy Industrial"},
+                  {l:"ADA Compliant",   v:"Yes"},
+                  {l:"LEED Certified",  v:"Silver"},
+                  {l:"Year Built",      v:"2008"},
+                  {l:"Last Inspected",  v:"Oct 2024"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.l} title={d.l}
+                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+            </div>
+          )}
+
+          {/* ══ LEASES ══ */}
+          {siteTab==="leases" && (
+            <div>
+              <Section header="Active Leases">
+                {[
+                  {tenant:"Apex Distribution LLC", sqft:82000, rate:8.75, exp:"Dec 2026", status:"Active"},
+                  {tenant:"NovaTech Logistics",    sqft:42000, rate:9.10, exp:"Mar 2025", status:"Expiring"},
+                ].map((l,i,arr)=>(
+                  <ListRow key={l.tenant}
+                    left={<div style={{width:36,height:36,borderRadius:10,
+                      background:l.status==="Active"?`${iOS.green}22`:`${iOS.orange}22`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📄</div>}
+                    title={l.tenant}
+                    subtitle={`${l.sqft.toLocaleString()} sqft · $${l.rate}/sqft`}
+                    right={<div style={{textAlign:"right"}}>
+                      <div style={{...T.caption,color:iOS.label2,marginBottom:2}}>Exp {l.exp}</div>
+                      <Badge label={l.status} color={l.status==="Active"?iOS.green:iOS.orange}/>
+                    </div>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Lease Summary">
+                {[
+                  {l:"Total Leased",    v:"124,000 sqft"},
+                  {l:"Vacant",          v:`${(site.sqft-124000).toLocaleString()} sqft`},
+                  {l:"Occupancy Rate",  v:`${Math.round((124000/site.sqft)*100)}%`},
+                  {l:"Avg Rent / sqft", v:"$8.93"},
+                  {l:"Annual Rent",     v:"$1,087,200"},
+                  {l:"Annual OC",       v:"$1,304,640"},
+                  {l:"Total OC",        v:"$2,391,840"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.l} title={d.l}
+                    right={<span style={{...T.subhead,
+                      color:d.l==="Occupancy Rate"?iOS.green:iOS.label2}}>{d.v}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <div style={{marginTop:4}}>
+                <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>toast("Opening lease editor…")}>
+                  + Add Lease
+                </IOSBtn>
+              </div>
+            </div>
+          )}
+
+          {/* ══ UTILIZATION ══ */}
+          {siteTab==="util" && (
+            <div>
+              {/* Occupancy gauge */}
+              <div style={{background:iOS.bg2,borderRadius:14,padding:20,marginBottom:16,textAlign:"center"}}>
+                <div style={{...T.caption2,textTransform:"uppercase",letterSpacing:".1em",
+                  color:iOS.label2,marginBottom:8}}>Current Occupancy</div>
+                {(()=>{
+                  const pct=Math.round((124000/site.sqft)*100);
+                  const col=pct>=90?iOS.green:pct>=70?iOS.orange:iOS.red;
+                  return (<>
+                    <div style={{fontSize:56,fontWeight:700,color:col,letterSpacing:"-2px",lineHeight:1,marginBottom:4}}>
+                      {pct}%
+                    </div>
+                    <div style={{...T.footnote,color:iOS.label2,marginBottom:16}}>
+                      124,000 of {site.sqft.toLocaleString()} sqft occupied
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:8,borderRadius:4,background:iOS.bg4,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:4,transition:"width .5s ease"}}/>
+                    </div>
+                  </>);
+                })()}
+              </div>
+              <Section header="Space Breakdown">
+                {[
+                  {label:"Warehouse",  sqft:110000, color:iOS.blue},
+                  {label:"Office",     sqft:4200,   color:iOS.indigo},
+                  {label:"Mezzanine",  sqft:9800,   color:iOS.teal},
+                  {label:"Vacant",     sqft:site.sqft-124000, color:iOS.fill},
+                ].map((s,i,arr)=>{
+                  const pct=Math.round((s.sqft/site.sqft)*100);
+                  return (
+                    <ListRow key={s.label}
+                      left={<div style={{width:12,height:12,borderRadius:3,background:s.color,flexShrink:0}}/>}
+                      title={s.label}
+                      subtitle={`${s.sqft.toLocaleString()} sqft`}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{pct}%</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  );
+                })}
+              </Section>
+              <Section header="Operational Metrics">
+                {[
+                  {l:"Avg Daily Throughput",  v:"4,200 pallets"},
+                  {l:"Dock Utilization",      v:"78%"},
+                  {l:"Peak Hours",            v:"6am – 2pm"},
+                  {l:"Shifts",               v:"2 (Day / Night)"},
+                  {l:"Headcount",            v:"142 FTE"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.l} title={d.l}
+                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+            </div>
+          )}
+
+          {/* ══ DOCUMENTS ══ */}
+          {siteTab==="docs" && (
+            <div>
+              <Section header="Lease Documents">
+                {[
+                  {icon:"📋",name:"Master Lease Agreement.pdf",  date:"Jan 3, 2025",  size:"2.4 MB"},
+                  {icon:"📋",name:"Apex Distribution Lease.pdf", date:"Nov 12, 2024", size:"1.8 MB"},
+                  {icon:"📋",name:"NovaTech Lease Amendment.pdf",date:"Sep 5, 2024",  size:"890 KB"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.name}
+                    left={<div style={{width:36,height:36,borderRadius:10,
+                      background:`${iOS.orange}22`,display:"flex",
+                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
+                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    right={<DocActions name={d.name} onToast={toast}/>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Inspections & Compliance">
+                {[
+                  {icon:"✅",name:"Fire Inspection Report Q4 2024.pdf", date:"Oct 18, 2024", size:"540 KB"},
+                  {icon:"✅",name:"OSHA Compliance Certificate.pdf",     date:"Aug 2, 2024",  size:"320 KB"},
+                  {icon:"✅",name:"Environmental Assessment 2024.pdf",   date:"Jul 15, 2024", size:"3.1 MB"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.name}
+                    left={<div style={{width:36,height:36,borderRadius:10,
+                      background:`${iOS.green}22`,display:"flex",
+                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
+                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    right={<DocActions name={d.name} onToast={toast}/>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Engineering & Plans">
+                {[
+                  {icon:"📐",name:"Floor Plan – As Built.dwg",      date:"2022",        size:"18 MB"},
+                  {icon:"📐",name:"Electrical Single-Line.pdf",      date:"2022",        size:"6.2 MB"},
+                  {icon:"📐",name:"Sprinkler Layout.pdf",            date:"Mar 1, 2024", size:"4.8 MB"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.name}
+                    left={<div style={{width:36,height:36,borderRadius:10,
+                      background:`${iOS.indigo}22`,display:"flex",
+                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
+                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    right={<DocActions name={d.name} onToast={toast}/>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>toast("Upload document…")}>
+                + Upload Document
+              </IOSBtn>
+            </div>
+          )}
+
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={{flex:1, display:"flex", flexDirection:"column", background:"#000", position:"relative"}}>
@@ -1039,6 +1381,89 @@ function MediaSection({ tourId, compId, items, onAdd, onRemove }) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   COMP (PROPERTY) SUB-NAV
+═══════════════════════════════════════════════════════ */
+function CompSubNav({tab, setTab}) {
+  const TABS = [
+    {id:"photos",   icon:"📷", label:"Photos"  },
+    {id:"building", icon:"🏗️", label:"Building"},
+    {id:"docs",     icon:"🗂️", label:"Docs"    },
+    {id:"scoring",  icon:"📊", label:"Scoring" },
+  ];
+  return (
+    <div style={{
+      flexShrink:0, padding:"8px 16px",
+      background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
+    }}>
+      <div style={{
+        display:"flex", background:iOS.bg3,
+        borderRadius:12, padding:4, height:44, alignItems:"center",
+      }}>
+        {TABS.map(t=>{
+          const active=tab===t.id;
+          return (
+            <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
+              style={{
+                flex:1, height:"100%", border:"none", borderRadius:9,
+                background:active?iOS.blue:"transparent",
+                color:active?"#ffffff":iOS.label2,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                gap:4, fontSize:12, fontWeight:active?600:400,
+                cursor:"pointer", transition:"background .18s, color .18s", padding:"0 4px",
+              }}>
+              <span style={{fontSize:14}}>{t.icon}</span>
+              <span style={{whiteSpace:"nowrap"}}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   TOUR SUB-NAV (segmented control)
+═══════════════════════════════════════════════════════ */
+function TourSubNav({tab, setTab}) {
+  const TABS = [
+    {id:"map",        icon:"🗺️", label:"Map"       },
+    {id:"properties", icon:"🏢", label:"Properties"},
+    {id:"people",     icon:"👥", label:"People"    },
+    {id:"scores",     icon:"📊", label:"Scores"    },
+  ];
+  return (
+    <div style={{
+      flexShrink:0, padding:"8px 16px",
+      background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
+    }}>
+      <div style={{
+        display:"flex", background:iOS.bg3,
+        borderRadius:12, padding:4, height:44, alignItems:"center",
+      }}>
+        {TABS.map(t => {
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
+              style={{
+                flex:1, height:"100%", border:"none", borderRadius:9,
+                background:active ? iOS.blue : "transparent",
+                color:active ? "#ffffff" : iOS.label2,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                gap:4, fontSize:12, fontWeight:active?600:400,
+                cursor:"pointer", transition:"background .18s, color .18s",
+                padding:"0 4px",
+              }}>
+              <span style={{fontSize:14}}>{t.icon}</span>
+              <span style={{whiteSpace:"nowrap"}}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
    TOURS
 ═══════════════════════════════════════════════════════ */
 function Tours({user, tours, setTours, projects, comps, toast}) {
@@ -1048,7 +1473,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   const [newSheet,setNewSheet]=useState(false);
   const [invEmail,setInvEmail]=useState("");
   const [invRole,setInvRole]=useState("");
-  const [ntForm,setNtForm]=useState({name:"",pid:"",date:"",comps:[]});
+  const [ntForm,setNtForm]=useState({name:"",pid:"",date:"",comps:[],times:{}});
   const [scores,setScores]=useState(()=>{
     const init={};
     tours.forEach(t=>{
@@ -1065,6 +1490,18 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   // media[tourId][compId] = [{id,type,url,name,size}]
   const [media,setMedia]=useState({});
   const [syncing,setSyncing]=useState(false);
+  // Sub-nav tab for tour detail view ("map"|"properties"|"people"|"scores")
+  const [tourTab,setTourTab]=useState("properties");
+  // Sub-nav tab for individual comp/property view
+  const [compTab,setCompTab]=useState("scoring");
+  // Quick-capture file inputs (comment sheet + photo + video)
+  const [commentSheet,setCommentSheet]=useState(false);
+  const [commentText,setCommentText]=useState("");
+  const quickPhotoRef=useRef(null);
+  const quickVideoRef=useRef(null);
+  // Reset tabs when navigating
+  useEffect(()=>{ setTourTab("properties"); },[activeTour]);
+  useEffect(()=>{ setCompTab("scoring"); },[activeComp]);
 
   /* ── Note helpers ── */
   const getNote=(tourId,compId)=>notes[tourId]?.[compId]??"";
@@ -1126,96 +1563,336 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   };
   const addTour=()=>{
     if(!ntForm.name||!ntForm.pid)return;
-    setTours(prev=>[...prev,{id:"t"+Date.now(),pid:ntForm.pid,name:ntForm.name,date:ntForm.date||"TBD",status:"Scheduled",contacts:[],comps:ntForm.comps}]);
-    setNewSheet(false); setNtForm({name:"",pid:"",date:"",comps:[]}); toast("Tour created");
+    setTours(prev=>[...prev,{id:"t"+Date.now(),pid:ntForm.pid,name:ntForm.name,date:ntForm.date||"TBD",status:"Scheduled",contacts:[],comps:ntForm.comps,times:ntForm.times}]);
+    setNewSheet(false); setNtForm({name:"",pid:"",date:"",comps:[],times:{}}); toast("Tour created");
   };
 
   const tour=tours.find(t=>t.id===activeTour);
   const comp=tour?comps.find(c=>c.id===activeComp):null;
 
-  /* ── Scoring view ── */
+  /* ── Property detail view (inside a tour) ── */
   if(comp&&tour){
     const myTC=tour.contacts[0];
-    const myS=myTC?(scores[tour.id]?.[myTC.id]?.[comp.id]??{}):{}; 
+    const myS=myTC?(scores[tour.id]?.[myTC.id]?.[comp.id]??{}):{};
     const live=calcIPS(myS);
     const col=live>=7.5?iOS.green:live>=5?iOS.orange:iOS.red;
-    return (
-      <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease"}}>
-        <NavBar title="Score Property" onBack={()=>setActiveComp(null)} backLabel="Tour"/>
-        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
-          {/* Hero */}
-          <div style={{background:iOS.bg2,borderRadius:16,padding:20,textAlign:"center",marginBottom:20,border:`1px solid ${col}33`}}>
-            <div style={{...T.caption2,textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>IPS™ SCORE</div>
-            <div style={{fontSize:72,fontWeight:700,color:col,letterSpacing:"-3px",lineHeight:1,marginBottom:8}}>{live.toFixed(2)}</div>
-            <div style={{...T.subhead,color:iOS.label2,marginBottom:12}}>{comp.name}</div>
-            <div style={{...T.footnote,color:iOS.label3,marginBottom:16}}>{comp.addr}</div>
-            <div style={{display:"flex",justifyContent:"center",gap:8}}>
-              <Badge label={`${comp.sqft.toLocaleString()} sqft`} color={iOS.blue}/>
-              <Badge label={`$${comp.rent}/sqft`} color={iOS.orange}/>
-            </div>
-          </div>
+    const compMedia=getMedia(tour.id,comp.id);
+    const apptTime=tour.times?.[comp.id];
 
-          {/* Sliders */}
-          <Section header="KSD Ratings">
-            <div style={{padding:"8px 16px"}}>
-              {KSD.map((k,i)=>{
-                const val=myS[k.id]??0;
-                const c=val>=7?iOS.green:val>=4?iOS.orange:iOS.red;
-                return (
-                  <div key={k.id} style={{marginBottom:i<KSD.length-1?20:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                      <span style={{...T.subhead}}>{k.icon} {k.label}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{...T.caption,color:iOS.label3}}>Wt:{W[k.id]}%</span>
-                        <span style={{fontSize:18,fontWeight:700,color:c,minWidth:24,textAlign:"right"}}>{val}</span>
-                      </div>
+    const handleQuickPhoto=e=>{
+      const files=Array.from(e.target.files);
+      if(!files.length)return;
+      addMedia(tour.id,comp.id,files.map(f=>({
+        id:"m"+Date.now()+Math.random().toString(36).slice(2),
+        type:f.type.startsWith("video/")?"video":"image",
+        url:URL.createObjectURL(f),name:f.name,size:f.size,
+      })));
+      e.target.value="";
+      setCompTab("photos");
+      toast("Photo added");
+    };
+    const handleQuickVideo=e=>{
+      const files=Array.from(e.target.files);
+      if(!files.length)return;
+      addMedia(tour.id,comp.id,files.map(f=>({
+        id:"m"+Date.now()+Math.random().toString(36).slice(2),
+        type:"video",
+        url:URL.createObjectURL(f),name:f.name,size:f.size,
+      })));
+      e.target.value="";
+      setCompTab("photos");
+      toast("Video added");
+    };
+    const submitComment=()=>{
+      if(!commentText.trim())return;
+      setNote(tour.id,comp.id,
+        (getNote(tour.id,comp.id)?getNote(tour.id,comp.id)+"\n\n":"")
+        +"— "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})
+        +"\n"+commentText.trim()
+      );
+      setCommentText("");
+      setCommentSheet(false);
+      toast("Comment added");
+    };
+
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease",position:"relative"}}>
+        {/* Hidden file inputs for quick capture */}
+        <input ref={quickPhotoRef} type="file" accept="image/*" multiple
+          style={{display:"none"}} onChange={handleQuickPhoto}/>
+        <input ref={quickVideoRef} type="file" accept="video/*" multiple
+          style={{display:"none"}} onChange={handleQuickVideo}/>
+
+        {/* NavBar */}
+        <NavBar title={comp.name} onBack={()=>setActiveComp(null)} backLabel="Properties"
+          rightItem={
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              {apptTime&&<Badge label={apptTime} color={iOS.teal}/>}
+              <ScoreChip score={live}/>
+            </div>
+          }/>
+
+        {/* Comp sub-nav */}
+        <CompSubNav tab={compTab} setTab={setCompTab}/>
+
+        {/* Scrollable content — paddingBottom leaves room for sticky bar */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 100px"}}>
+
+          {/* ══ PHOTOS ══ */}
+          {compTab==="photos" && (
+            <div>
+              {compMedia.length>0 ? (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+                  {compMedia.map(item=>(
+                    <div key={item.id} style={{position:"relative",aspectRatio:"1",borderRadius:10,overflow:"hidden",background:iOS.bg3}}>
+                      {item.type==="image"
+                        ?<img src={item.url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",
+                            justifyContent:"center",background:iOS.bg4}}>
+                            <span style={{fontSize:24,opacity:.8}}>▶</span>
+                          </div>
+                      }
+                      <button onClick={()=>removeMedia(tour.id,comp.id,item.id)}
+                        style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",
+                          background:"rgba(0,0,0,0.72)",border:"none",color:"#fff",fontSize:13,
+                          cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                      {item.type==="video"&&(
+                        <div style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,0.62)",
+                          borderRadius:4,padding:"2px 5px",fontSize:9,color:"#fff",fontWeight:700}}>VIDEO</div>
+                      )}
                     </div>
-                    <input type="range" value={val} min={0} max={10}
-                      onChange={e=>myTC&&setScore(tour.id,myTC.id,comp.id,k.id,+e.target.value)}
-                      style={{accentColor:c}}/>
-                    <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                      <span style={{...T.caption2}}>Low</span>
-                      <span style={{...T.caption2}}>Contribution: {((W[k.id]/100)*val).toFixed(2)}</span>
-                      <span style={{...T.caption2}}>High</span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{background:iOS.bg2,borderRadius:14,padding:48,textAlign:"center",
+                  marginBottom:16,border:`1px dashed ${iOS.separator}`}}>
+                  <div style={{fontSize:44,marginBottom:12}}>📷</div>
+                  <div style={{...T.headline,marginBottom:6}}>No Photos Yet</div>
+                  <div style={{...T.footnote,color:iOS.label2}}>
+                    Use the buttons below to add photos or video
+                  </div>
+                </div>
+              )}
+              <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>quickPhotoRef.current?.click()}>
+                📷 {compMedia.length>0?`${compMedia.length} file${compMedia.length>1?"s":""} · Add More`:"Add Photos & Videos"}
+              </IOSBtn>
+            </div>
+          )}
+
+          {/* ══ BUILDING INFO ══ */}
+          {compTab==="building" && (
+            <div>
+              <Section header="Overview">
+                {[
+                  {l:"Address",        v:comp.addr},
+                  {l:"Square Footage", v:comp.sqft.toLocaleString()+" sqft"},
+                  {l:"Clear Height",   v:comp.ch+"'"},
+                  {l:"Asking Rent",    v:`$${comp.rent}/sqft`},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.l} title={d.l}
+                    right={<span style={{...T.subhead,color:iOS.label2,maxWidth:160,textAlign:"right",
+                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.v}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Specifications">
+                {[
+                  {icon:"🚪",label:"Dock Doors",      val:"18"},
+                  {icon:"🚗",label:"Drive-In Doors",   val:"2"},
+                  {icon:"⚡",label:"Power",             val:"1,200A / 480V"},
+                  {icon:"🔥",label:"Fire Suppression",  val:"ESFR"},
+                  {icon:"🚛",label:"Truck Court",       val:"130 ft"},
+                  {icon:"🔲",label:"Column Spacing",    val:"50' × 48'"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.label}
+                    left={<span style={{fontSize:18}}>{d.icon}</span>}
+                    title={d.label}
+                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Location">
+                <ListRow title="Open in Maps" subtitle={comp.addr}
+                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(comp.addr)}`,"_blank")}
+                  left={<span style={{fontSize:20}}>🗺️</span>}
+                  last/>
+              </Section>
+            </div>
+          )}
+
+          {/* ══ DOCUMENTS ══ */}
+          {compTab==="docs" && (
+            <div>
+              <Section header="Property Documents">
+                {[
+                  {icon:"📋",name:"Property Brochure.pdf",      date:"Jan 2025",  size:"3.2 MB"},
+                  {icon:"📋",name:"Offering Memorandum.pdf",     date:"Dec 2024",  size:"8.1 MB"},
+                  {icon:"📋",name:"Lease Abstract.pdf",          date:"Nov 2024",  size:"1.4 MB"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.name}
+                    left={<div style={{width:36,height:36,borderRadius:10,background:`${iOS.orange}22`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
+                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    right={<DocActions name={d.name} onToast={toast}/>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <Section header="Due Diligence">
+                {[
+                  {icon:"✅",name:"Phase I Environmental.pdf",   date:"Oct 2024",  size:"5.4 MB"},
+                  {icon:"✅",name:"Property Condition Report.pdf",date:"Sep 2024",  size:"2.9 MB"},
+                  {icon:"✅",name:"Survey & Legal Description.pdf",date:"Aug 2024", size:"1.1 MB"},
+                ].map((d,i,arr)=>(
+                  <ListRow key={d.name}
+                    left={<div style={{width:36,height:36,borderRadius:10,background:`${iOS.green}22`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
+                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    right={<DocActions name={d.name} onToast={toast}/>}
+                    showChevron={false} last={i===arr.length-1}/>
+                ))}
+              </Section>
+              <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>toast("Upload document…")}>
+                + Upload Document
+              </IOSBtn>
+            </div>
+          )}
+
+          {/* ══ SCORING ══ */}
+          {compTab==="scoring" && (
+            <div>
+              {/* Hero score */}
+              <div style={{background:iOS.bg2,borderRadius:16,padding:20,textAlign:"center",
+                marginBottom:20,border:`1px solid ${col}33`}}>
+                <div style={{...T.caption2,textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>IPS™ SCORE</div>
+                <div style={{fontSize:72,fontWeight:700,color:col,letterSpacing:"-3px",lineHeight:1,marginBottom:8}}>
+                  {live.toFixed(2)}
+                </div>
+                <div style={{...T.footnote,color:iOS.label3,marginBottom:12}}>
+                  {comp.sqft.toLocaleString()} sqft · ${comp.rent}/sqft
+                </div>
+                {/* Mini progress bar */}
+                <div style={{height:6,borderRadius:3,background:iOS.bg4,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${(live/10)*100}%`,background:col,borderRadius:3,transition:"width .4s ease"}}/>
+                </div>
+              </div>
+
+              {/* KSD Sliders */}
+              <Section header="KSD Ratings">
+                <div style={{padding:"8px 16px"}}>
+                  {KSD.map((k,i)=>{
+                    const val=myS[k.id]??0;
+                    const c=val>=7?iOS.green:val>=4?iOS.orange:iOS.red;
+                    return (
+                      <div key={k.id} style={{marginBottom:i<KSD.length-1?20:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                          <span style={{...T.subhead}}>{k.icon} {k.label}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{...T.caption,color:iOS.label3}}>Wt:{W[k.id]}%</span>
+                            <span style={{fontSize:18,fontWeight:700,color:c,minWidth:24,textAlign:"right"}}>{val}</span>
+                          </div>
+                        </div>
+                        <input type="range" value={val} min={0} max={10}
+                          onChange={e=>myTC&&setScore(tour.id,myTC.id,comp.id,k.id,+e.target.value)}
+                          style={{accentColor:c}}/>
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                          <span style={{...T.caption2}}>Low</span>
+                          <span style={{...T.caption2}}>Contribution: {((W[k.id]/100)*val).toFixed(2)}</span>
+                          <span style={{...T.caption2}}>High</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+
+              {/* Tour notes / comments */}
+              {getNote(tour.id,comp.id) && (
+                <Section header="Comments & Notes">
+                  <div style={{padding:"12px 16px"}}>
+                    <div style={{...T.subhead,color:iOS.label2,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                      {getNote(tour.id,comp.id)}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </Section>
+                </Section>
+              )}
 
-          {/* Media */}
-          <MediaSection
-            tourId={tour.id} compId={comp.id}
-            items={getMedia(tour.id, comp.id)}
-            onAdd={addMedia} onRemove={removeMedia}/>
-
-          {/* Notes */}
-          <div style={{marginBottom:16}}>
-            <Section header="Tour Notes">
-              <div style={{padding:"8px 16px 12px"}}>
-                <textarea value={getNote(tour.id,comp.id)}
-                  onChange={e=>setNote(tour.id,comp.id,e.target.value)}
-                  placeholder="Observations, red flags, highlights…"
-                  style={{width:"100%",minHeight:100,background:"transparent",border:"none",
-                    fontSize:16,color:iOS.label,outline:"none",lineHeight:1.5}}/>
+              {/* Save & Sync */}
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+                <IOSBtn onPress={()=>{setActiveComp(null);toast("Scores saved");}} full>
+                  Save & Return
+                </IOSBtn>
+                <IOSBtn variant="tinted" color={iOS.green} full disabled={syncing} onPress={doSync}>
+                  {syncing
+                    ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
+                        border:"2px solid rgba(48,209,88,0.3)",borderTopColor:iOS.green,
+                        animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
+                    : "☁️ Sync to Web"}
+                </IOSBtn>
               </div>
-            </Section>
-          </div>
+            </div>
+          )}
 
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <IOSBtn onPress={()=>{setActiveComp(null);toast("Scores saved");}} full>
-              Save & Return
-            </IOSBtn>
-            <IOSBtn variant="tinted" color={iOS.green} full disabled={syncing} onPress={doSync}>
-              {syncing
-                ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
-                    border:"2px solid rgba(48,209,88,0.3)",borderTopColor:iOS.green,
-                    animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
-                : "☁️ Sync to Web"}
+        </div>{/* end scroll container */}
+
+        {/* ── Sticky action bar ── */}
+        <div style={{
+          position:"absolute", bottom:0, left:0, right:0,
+          background:`${iOS.bg2}f0`, backdropFilter:"blur(20px)",
+          borderTop:`0.5px solid ${iOS.separator}`,
+          padding:"10px 16px 16px",
+          display:"flex", gap:10,
+        }}>
+          <button className="pressable"
+            onClick={()=>{setCommentText("");setCommentSheet(true);}}
+            style={{
+              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
+              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
+              cursor:"pointer", display:"flex", flexDirection:"column",
+              alignItems:"center", gap:4,
+            }}>
+            <span style={{fontSize:20}}>💬</span>
+            <span>Comment</span>
+          </button>
+          <button className="pressable"
+            onClick={()=>quickPhotoRef.current?.click()}
+            style={{
+              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
+              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
+              cursor:"pointer", display:"flex", flexDirection:"column",
+              alignItems:"center", gap:4,
+            }}>
+            <span style={{fontSize:20}}>📷</span>
+            <span>Photo</span>
+          </button>
+          <button className="pressable"
+            onClick={()=>quickVideoRef.current?.click()}
+            style={{
+              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
+              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
+              cursor:"pointer", display:"flex", flexDirection:"column",
+              alignItems:"center", gap:4,
+            }}>
+            <span style={{fontSize:20}}>🎥</span>
+            <span>Video</span>
+          </button>
+        </div>
+
+        {/* Comment sheet */}
+        <Sheet open={commentSheet} onClose={()=>setCommentSheet(false)} title="Add Comment" detent="medium">
+          <div style={{display:"flex",flexDirection:"column",gap:14,paddingBottom:24}}>
+            <div style={{background:iOS.bg3,borderRadius:12,padding:"12px 16px"}}>
+              <textarea value={commentText} onChange={e=>setCommentText(e.target.value)}
+                placeholder="Observations, red flags, highlights…"
+                autoFocus
+                style={{width:"100%",minHeight:120,background:"transparent",border:"none",
+                  fontSize:16,color:iOS.label,outline:"none",lineHeight:1.6}}/>
+            </div>
+            <IOSBtn onPress={submitComment} full disabled={!commentText.trim()}>
+              Add Comment
             </IOSBtn>
           </div>
-        </div>
+        </Sheet>
+
       </div>
     );
   }
@@ -1224,77 +1901,325 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   if(tour){
     const tComps=comps.filter(c=>tour.comps.includes(c.id));
     const barData=tComps.map(c=>({name:c.name,avg:parseFloat(getAvg(tour.id,c.id).toFixed(2))})).sort((a,b)=>b.avg-a.avg);
+    const radarColors=[iOS.green,iOS.blue,iOS.orange];
+    const radarData=KSD.map(k=>{
+      const entry={subject:k.label};
+      tComps.forEach(c=>{
+        const allS=tour.contacts.map(tc=>scores[tour.id]?.[tc.id]?.[c.id]??{});
+        const vals=allS.map(s=>s[k.id]??0);
+        entry[c.name]=vals.length>0 ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+      });
+      return entry;
+    });
+
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",position:"relative",animation:"slideR .28s ease"}}>
         <NavBar title={tour.name} onBack={user.role!=="guest"?()=>setActiveTour(null):null} backLabel="Tours"
           rightItem={<Badge label={tour.status} color={tour.status==="In Progress"?iOS.orange:iOS.blue}/>}/>
-        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
-          {/* Properties */}
-          <Section header={`Properties to Visit (${tComps.length})`}>
-            {tComps.length===0&&<ListRow title="No properties assigned" showChevron={false} last/>}
-            {tComps.map((c,i)=>{
-              const avg=getAvg(tour.id,c.id);
-              return <ListRow key={c.id}
-                left={<div style={{width:40,height:40,borderRadius:12,background:`${iOS.blue}22`,
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏢</div>}
-                title={c.name} subtitle={c.addr}
-                right={avg>0?<ScoreChip score={avg}/>:<Badge label="Score →" color={iOS.blue}/>}
-                onPress={()=>setActiveComp(c.id)} last={i===tComps.length-1}/>;
-            })}
-          </Section>
 
-          {/* Stakeholders */}
-          <Section header={`Stakeholders (${tour.contacts.length})`}>
-            {tour.contacts.length===0&&<ListRow title="No contacts yet" showChevron={false} last/>}
-            {tour.contacts.map((tc,i)=>{
-              const sc=tComps.some(c=>Object.keys(scores[tour.id]?.[tc.id]?.[c.id]??{}).length>0);
-              return <ListRow key={tc.id}
-                left={<Avatar init={tc.name.split(" ").map(n=>n[0]).join("")} size={36} color={sc?iOS.green:iOS.label3}/>}
-                title={tc.name} subtitle={`${tc.role} · ${tc.email}`}
-                right={<Badge label={sc?"Scored":"Pending"} color={sc?iOS.green:iOS.label3}/>}
-                showChevron={false} last={i===tour.contacts.length-1}/>;
-            })}
-          </Section>
-          {user.role!=="guest"&&(
-            <div style={{marginBottom:12}}>
-              <IOSBtn variant="tinted" full onPress={()=>setInviteSheet(true)}>✉️ Invite Stakeholder</IOSBtn>
+        {/* Segmented sub-nav — pinned, never scrolls */}
+        <TourSubNav tab={tourTab} setTab={setTourTab}/>
+
+        {/* Scrollable tab content */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
+
+          {/* ══ MAP ══ */}
+          {tourTab==="map" && (
+            <div>
+              {tComps.length===0 ? (
+                <div style={{textAlign:"center",padding:"48px 24px",color:iOS.label3,fontSize:15}}>
+                  No properties assigned to this tour.
+                </div>
+              ) : (
+                <>
+                  {/* Single map showing all properties */}
+                  <div style={{
+                    borderRadius:14, overflow:"hidden",
+                    border:`0.5px solid ${iOS.separator}`, marginBottom:16,
+                  }}>
+                    <iframe
+                      title="Tour properties map"
+                      width="100%"
+                      height="260"
+                      style={{display:"block",border:"none"}}
+                      src={`https://www.google.com/maps?q=${encodeURIComponent(tComps.map(c=>c.addr).join(" | "))}&output=embed`}
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  </div>
+
+                  {/* Property list below the map */}
+                  <Section header={`${tComps.length} Propert${tComps.length===1?"y":"ies"} on This Tour`}>
+                    {tComps.map((c,i)=>(
+                      <ListRow key={c.id}
+                        left={
+                          <div style={{
+                            width:32,height:32,borderRadius:8,
+                            background:([`${iOS.green}22`,`${iOS.blue}22`,`${iOS.orange}22`][i]??`${iOS.indigo}22`),
+                            display:"flex",alignItems:"center",justifyContent:"center",
+                            fontSize:16,fontWeight:700,
+                            color:[iOS.green,iOS.blue,iOS.orange][i]??iOS.indigo,
+                          }}>{i+1}</div>
+                        }
+                        title={c.name}
+                        subtitle={c.addr}
+                        right={
+                          <button className="pressable"
+                            onClick={e=>{
+                              e.stopPropagation();
+                              window.open(`https://maps.google.com/?q=${encodeURIComponent(c.addr)}`,"_blank");
+                            }}
+                            style={{
+                              background:`${iOS.blue}22`,border:"none",borderRadius:8,
+                              color:iOS.blue,fontSize:12,fontWeight:600,
+                              padding:"5px 10px",cursor:"pointer",whiteSpace:"nowrap",
+                            }}>
+                            Directions
+                          </button>
+                        }
+                        showChevron={false}
+                        last={i===tComps.length-1}
+                      />
+                    ))}
+                  </Section>
+                </>
+              )}
             </div>
           )}
 
-          {/* Sync to Web */}
-          <div style={{marginBottom:20}}>
-            <IOSBtn variant={syncing?"gray":"filled"} color={iOS.green} full disabled={syncing} onPress={doSync}>
-              {syncing
-                ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
-                    border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",
-                    animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
-                : "☁️ Sync to Web"}
-            </IOSBtn>
-          </div>
-
-          {/* Bar chart */}
-          {barData.some(d=>d.avg>0)&&(
-            <Section header="Group Consensus · Avg IPS™">
-              <div style={{padding:"16px 8px"}}>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={barData} barSize={36}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={iOS.separator}/>
-                    <XAxis dataKey="name" tick={{fontSize:10,fill:iOS.label2}}/>
-                    <YAxis domain={[0,10]} tick={{fontSize:10,fill:iOS.label2}} width={20}/>
-                    <Tooltip formatter={v=>[v.toFixed(2),"Avg IPS™"]}
-                      contentStyle={{background:iOS.bg3,border:`1px solid ${iOS.separator}`,borderRadius:10}}
-                      labelStyle={{color:iOS.label}} itemStyle={{color:iOS.label2}}/>
-                    <Bar dataKey="avg" radius={[6,6,0,0]}>
-                      {barData.map((_,i)=><Cell key={i} fill={[iOS.green,iOS.blue,iOS.orange][i]??iOS.label3}/>)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+          {/* ══ PROPERTIES ══ */}
+          {tourTab==="properties" && (
+            <div>
+              {/* Tour date header */}
+              <div style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"0 4px 12px",
+              }}>
+                <div style={{...T.title3}}>{tour.date}</div>
+                <Badge label={tour.status} color={tour.status==="In Progress"?iOS.orange:iOS.blue}/>
               </div>
-            </Section>
-          )}
-        </div>
 
-        {/* Invite sheet */}
+              {tComps.length===0
+                ? <Section><ListRow title="No properties assigned" showChevron={false} last/></Section>
+                : tComps.map((c,i)=>{
+                    const avg=getAvg(tour.id,c.id);
+                    const apptTime=tour.times?.[c.id];
+                    const colors=[iOS.green,iOS.blue,iOS.orange,iOS.indigo,iOS.teal];
+                    const numColor=colors[i]??iOS.label3;
+                    const isLast=i===tComps.length-1;
+                    return (
+                      <div key={c.id} style={{marginBottom:isLast?0:12}}>
+                        {/* Time label */}
+                        {apptTime && (
+                          <div style={{
+                            display:"flex", alignItems:"center", gap:8,
+                            padding:"0 4px 6px",
+                          }}>
+                            <span style={{fontSize:13}}>🕐</span>
+                            <span style={{...T.footnote, color:iOS.label2, fontWeight:600}}>
+                              {apptTime}
+                            </span>
+                            <div style={{flex:1, height:"0.5px", background:iOS.separator}}/>
+                          </div>
+                        )}
+                        {/* Property card */}
+                        <div style={{
+                          background:iOS.bg2, borderRadius:14,
+                          overflow:"hidden", border:`0.5px solid ${iOS.separator}`,
+                        }}
+                          onClick={()=>setActiveComp(c.id)}
+                          className="pressable"
+                        >
+                          <div style={{display:"flex", alignItems:"center", gap:12, padding:"14px 16px"}}>
+                            {/* Number badge */}
+                            <div style={{
+                              width:36, height:36, borderRadius:10, flexShrink:0,
+                              background:`${numColor}22`,
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              fontSize:18, fontWeight:700, color:numColor,
+                            }}>{i+1}</div>
+                            {/* Text */}
+                            <div style={{flex:1, minWidth:0}}>
+                              <div style={{...T.headline, marginBottom:2,
+                                whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                                {c.name}
+                              </div>
+                              <div style={{...T.footnote, color:iOS.label2,
+                                whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                                {c.addr}
+                              </div>
+                              <div style={{display:"flex", gap:6, marginTop:6}}>
+                                <Badge label={`${c.sqft.toLocaleString()} sqft`} color={iOS.blue}/>
+                                <Badge label={`$${c.rent}/sqft`} color={iOS.orange}/>
+                              </div>
+                            </div>
+                            {/* Score or CTA */}
+                            <div style={{flexShrink:0, display:"flex", flexDirection:"column",
+                              alignItems:"flex-end", gap:6}}>
+                              {avg>0
+                                ? <ScoreChip score={avg}/>
+                                : <Badge label="Score →" color={iOS.blue}/>}
+                              <span style={{color:iOS.label3, fontSize:17, fontWeight:500}}>›</span>
+                            </div>
+                          </div>
+                          {/* Progress strip */}
+                          <div style={{height:3, background:iOS.bg4}}>
+                            <div style={{
+                              height:"100%",
+                              width:avg>0?`${(avg/10)*100}%`:"0%",
+                              background:avg>=7.5?iOS.green:avg>=5?iOS.orange:iOS.red,
+                              transition:"width .4s ease",
+                            }}/>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+          )}
+
+          {/* ══ PEOPLE ══ */}
+          {tourTab==="people" && (
+            <div>
+              <Section header={`Stakeholders (${tour.contacts.length})`}>
+                {tour.contacts.length===0&&<ListRow title="No contacts yet" showChevron={false} last/>}
+                {tour.contacts.map((tc,i)=>{
+                  const sc=tComps.some(c=>Object.keys(scores[tour.id]?.[tc.id]?.[c.id]??{}).length>0);
+                  return <ListRow key={tc.id}
+                    left={<Avatar init={tc.name.split(" ").map(n=>n[0]).join("")} size={36} color={sc?iOS.green:iOS.label3}/>}
+                    title={tc.name} subtitle={`${tc.role} · ${tc.email}`}
+                    right={<Badge label={sc?"Scored":"Pending"} color={sc?iOS.green:iOS.label3}/>}
+                    showChevron={false} last={i===tour.contacts.length-1}/>;
+                })}
+              </Section>
+              {user.role!=="guest"&&(
+                <div style={{marginBottom:12}}>
+                  <IOSBtn variant="tinted" full onPress={()=>setInviteSheet(true)}>✉️ Invite Stakeholder</IOSBtn>
+                </div>
+              )}
+              <div style={{marginBottom:20}}>
+                <IOSBtn variant={syncing?"gray":"filled"} color={iOS.green} full disabled={syncing} onPress={doSync}>
+                  {syncing
+                    ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
+                        border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",
+                        animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
+                    : "☁️ Sync to Web"}
+                </IOSBtn>
+              </div>
+            </div>
+          )}
+
+          {/* ══ SCORES ══ */}
+          {tourTab==="scores" && (
+            <div>
+              {/* Score cards — one per comp */}
+              {tComps.length>0 && (
+                <div style={{marginBottom:24}}>
+                  <div style={{...T.footnote,textTransform:"uppercase",letterSpacing:".04em",
+                    padding:"0 0 6px",color:iOS.label2}}>Comp Score Cards</div>
+                  {tComps.map(c=>{
+                    const avg=getAvg(tour.id,c.id);
+                    const col=avg>=7.5?iOS.green:avg>=5?iOS.orange:iOS.red;
+                    const allS=tour.contacts.map(tc=>scores[tour.id]?.[tc.id]?.[c.id]??{});
+                    const dimAvg={};
+                    KSD.forEach(k=>{
+                      const vs=allS.map(s=>s[k.id]??0);
+                      dimAvg[k.id]=vs.length>0?vs.reduce((a,b)=>a+b,0)/vs.length:0;
+                    });
+                    return (
+                      <div key={c.id} style={{
+                        background:iOS.bg2,borderRadius:14,padding:16,marginBottom:12,
+                        border:`0.5px solid ${col}33`,
+                      }}>
+                        {/* Header */}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                          <div>
+                            <div style={{...T.headline}}>{c.name}</div>
+                            <div style={{...T.caption,color:iOS.label2,marginTop:2}}>{c.addr}</div>
+                          </div>
+                          <ScoreChip score={avg} large/>
+                        </div>
+                        {/* KSD mini bars — 2-col grid */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 12px"}}>
+                          {KSD.map(k=>{
+                            const val=dimAvg[k.id];
+                            const contribution=(W[k.id]/100)*val;
+                            const barCol=val>=7?iOS.green:val>=4?iOS.orange:iOS.red;
+                            return (
+                              <div key={k.id}>
+                                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                                  <span style={{...T.caption2,color:iOS.label2}}>{k.icon} {k.label}</span>
+                                  <span style={{...T.caption2,color:barCol,fontWeight:600}}>{contribution.toFixed(2)}</span>
+                                </div>
+                                <div style={{height:4,borderRadius:2,background:iOS.bg4,overflow:"hidden"}}>
+                                  <div style={{height:"100%",width:`${(val/10)*100}%`,background:barCol,borderRadius:2,transition:"width .3s ease"}}/>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Bar chart — Group Consensus */}
+              {barData.some(d=>d.avg>0) && (
+                <Section header="Group Consensus · Avg IPS™">
+                  <div style={{padding:"16px 8px"}}>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <BarChart data={barData} barSize={36}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={iOS.separator}/>
+                        <XAxis dataKey="name" tick={{fontSize:10,fill:iOS.label2}}/>
+                        <YAxis domain={[0,10]} tick={{fontSize:10,fill:iOS.label2}} width={20}/>
+                        <Tooltip formatter={v=>[v.toFixed(2),"Avg IPS™"]}
+                          contentStyle={{background:iOS.bg3,border:`1px solid ${iOS.separator}`,borderRadius:10}}
+                          labelStyle={{color:iOS.label}} itemStyle={{color:iOS.label2}}/>
+                        <Bar dataKey="avg" radius={[6,6,0,0]}>
+                          {barData.map((_,i)=><Cell key={i} fill={[iOS.green,iOS.blue,iOS.orange][i]??iOS.label3}/>)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Section>
+              )}
+
+              {/* Radar chart — KSD comparison (2+ comps only) */}
+              {tComps.length>=2 && (
+                <Section header="KSD Radar · All Comps">
+                  <div style={{padding:"16px 8px"}}>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <RadarChart data={radarData}>
+                        <PolarGrid stroke={iOS.separator}/>
+                        <PolarAngleAxis dataKey="subject" tick={{fontSize:9,fill:iOS.label2}}/>
+                        <PolarRadiusAxis domain={[0,10]} tick={false} axisLine={false}/>
+                        {tComps.map((c,i)=>(
+                          <Radar key={c.id} name={c.name} dataKey={c.name}
+                            stroke={radarColors[i]??iOS.label3} fill={radarColors[i]??iOS.label3}
+                            fillOpacity={0.18} strokeWidth={2}/>
+                        ))}
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11,color:iOS.label2}}/>
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Section>
+              )}
+
+              {/* Empty state */}
+              {!barData.some(d=>d.avg>0) && (
+                <div style={{textAlign:"center",padding:"48px 24px",color:iOS.label3,fontSize:15}}>
+                  No scores yet. Tap a property in the Properties tab to start scoring.
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>{/* end scroll container */}
+
+        {/* Invite sheet — outside scroll, position:absolute via Sheet */}
         <Sheet open={inviteSheet} onClose={()=>setInviteSheet(false)} title="Invite Stakeholder">
           <div style={{display:"flex",flexDirection:"column",gap:14,paddingBottom:24}}>
             <Field label="Email" value={invEmail} onChange={setInvEmail} type="email" placeholder="name@company.com"/>
@@ -1340,16 +2265,58 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
             const avail=comps.filter(c=>projects.find(p=>p.id===ntForm.pid)?.comps.includes(c.id));
             return avail.length>0?(
               <div style={{background:iOS.bg3,borderRadius:12,padding:"8px 16px"}}>
-                <div style={{...T.caption,textTransform:"uppercase",letterSpacing:".06em",color:iOS.label2,padding:"8px 0 12px"}}>Include Comps</div>
-                {avail.map((c,i)=>(
-                  <label key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",
-                    borderBottom:i<avail.length-1?`0.5px solid ${iOS.separator}`:"none",cursor:"pointer"}}>
-                    <input type="checkbox" checked={ntForm.comps.includes(c.id)}
-                      onChange={e=>setNtForm(f=>({...f,comps:e.target.checked?[...f.comps,c.id]:f.comps.filter(x=>x!==c.id)}))}
-                      style={{accentColor:iOS.blue,width:20,height:20}}/>
-                    <span style={{...T.body}}>{c.name}</span>
-                  </label>
-                ))}
+                <div style={{...T.caption,textTransform:"uppercase",letterSpacing:".06em",color:iOS.label2,padding:"8px 0 12px"}}>
+                  Properties &amp; Appointment Times
+                </div>
+                {avail.map((c,i)=>{
+                  const checked=ntForm.comps.includes(c.id);
+                  return (
+                    <div key={c.id} style={{
+                      paddingBottom:8, marginBottom:8,
+                      borderBottom:i<avail.length-1?`0.5px solid ${iOS.separator}`:"none",
+                    }}>
+                      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:checked?8:0}}>
+                        <input type="checkbox" checked={checked}
+                          onChange={e=>setNtForm(f=>({
+                            ...f,
+                            comps:e.target.checked?[...f.comps,c.id]:f.comps.filter(x=>x!==c.id),
+                            times:e.target.checked?f.times:{...f.times,[c.id]:undefined},
+                          }))}
+                          style={{accentColor:iOS.blue,width:20,height:20,flexShrink:0}}/>
+                        <span style={{...T.body}}>{c.name}</span>
+                      </label>
+                      {checked && (
+                        <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:30}}>
+                          <span style={{fontSize:14}}>🕐</span>
+                          <input
+                            type="time"
+                            value={ntForm.times[c.id]??""}
+                            onChange={e=>{
+                              const raw=e.target.value;
+                              if(!raw){setNtForm(f=>({...f,times:{...f.times,[c.id]:""}}));return;}
+                              const [h,m]=raw.split(":");
+                              const hr=parseInt(h);
+                              const ampm=hr>=12?"PM":"AM";
+                              const hr12=hr%12||12;
+                              const label=`${hr12}:${m} ${ampm}`;
+                              setNtForm(f=>({...f,times:{...f.times,[c.id]:label}}));
+                            }}
+                            style={{
+                              flex:1,padding:"7px 10px",background:iOS.bg4,
+                              border:`1px solid ${iOS.separator}`,borderRadius:8,
+                              fontSize:14,color:iOS.label,outline:"none",
+                            }}
+                          />
+                          {ntForm.times[c.id] && (
+                            <span style={{...T.footnote,color:iOS.blue,fontWeight:600,whiteSpace:"nowrap"}}>
+                              {ntForm.times[c.id]}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ):<div style={{...T.footnote,color:iOS.label3}}>No comps in this project yet.</div>;
           })()}
