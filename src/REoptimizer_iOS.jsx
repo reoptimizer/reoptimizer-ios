@@ -106,6 +106,32 @@ const TOURS_SEED = [
     contacts:[{id:"tc3",name:"Derek Lim",email:"derek@co.com",role:"Director"}],
     comps:["c3"], times:{c3:"2:00 PM"} },
 ];
+const TASKS_SEED = [
+  { id:"tk1", priority:"High",   who:"Marcus Webb",   what:"Negotiate lease terms with Apex Distribution",
+    notes:"Focus on rent escalation caps and TI allowance.",
+    dueDate:"2025-03-01", startDate:"2025-02-10", status:"In Progress",
+    siteId:"s1", projectId:"p1" },
+  { id:"tk2", priority:"High",   who:"Brett Hale",    what:"Complete Phase I Environmental review",
+    notes:"Vendor: EnviroCheck LLC. Report due by month-end.",
+    dueDate:"2025-02-28", startDate:"2025-02-05", status:"In Progress",
+    siteId:"s2", projectId:"p2" },
+  { id:"tk3", priority:"Medium", who:"Monica Patel",  what:"Schedule structural inspection",
+    notes:"Coordinate with building owner for access.",
+    dueDate:"2025-03-15", startDate:"2025-02-20", status:"Not Started",
+    siteId:"s1", projectId:"p1" },
+  { id:"tk4", priority:"Low",    who:"Jordan Ellis",  what:"Update site utilization report",
+    notes:"Pull latest throughput numbers from ops team.",
+    dueDate:"2025-03-30", startDate:"2025-03-01", status:"Not Started",
+    siteId:"s3", projectId:"p3" },
+  { id:"tk5", priority:"Medium", who:"Derek Lim",     what:"Finalize LOI draft",
+    notes:"Legal to review before submission.",
+    dueDate:"2025-02-25", startDate:"2025-02-15", status:"Complete",
+    siteId:"s2", projectId:"p2" },
+];
+
+const PRIORITY_COLOR = { High:iOS.red, Medium:iOS.orange, Low:iOS.green };
+const TASK_STATUS    = ["Not Started","In Progress","Blocked","Complete"];
+
 const KSD = [
   {id:"ch",label:"Clear Height",    icon:"ruler"   },
   {id:"pc",label:"Power Capacity",  icon:"bolt"    },
@@ -778,24 +804,278 @@ function DocActions({name, onToast}) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   TASKS PANEL  (reused in Sites + Projects)
+═══════════════════════════════════════════════════════ */
+const EMPTY_TASK = {
+  priority:"Medium", who:"", what:"", notes:"",
+  dueDate:"", startDate:"", status:"Not Started",
+  siteId:"", projectId:"",
+};
+
+function TasksPanel({ tasks, setTasks, filterKey, filterId, sites_all=[], projects_all=[], toast, inline=false }) {
+  const [sheet,  setSheet]  = useState(false);
+  const [detail, setDetail] = useState(null); // task being viewed/edited
+  const [form,   setForm]   = useState(EMPTY_TASK);
+  const [editId, setEditId] = useState(null);
+
+  // Filtered list for this context
+  const visible = tasks.filter(t => t[filterKey] === filterId);
+
+  const openAdd = () => {
+    setForm({...EMPTY_TASK, [filterKey]: filterId});
+    setEditId(null);
+    setSheet(true);
+  };
+  const openEdit = t => {
+    setForm({...t});
+    setEditId(t.id);
+    setDetail(null);
+    setSheet(true);
+  };
+  const save = () => {
+    if(!form.what.trim()) return;
+    if(editId) {
+      setTasks(prev => prev.map(t => t.id===editId ? {...form, id:editId} : t));
+      toast("Task updated");
+    } else {
+      setTasks(prev => [...prev, {...form, id:"tk"+Date.now()}]);
+      toast("Task added");
+    }
+    setSheet(false);
+  };
+  const remove = id => {
+    setTasks(prev => prev.filter(t => t.id!==id));
+    setDetail(null);
+    toast("Task removed");
+  };
+  const cycleStatus = t => {
+    const idx = TASK_STATUS.indexOf(t.status);
+    const next = TASK_STATUS[(idx+1) % TASK_STATUS.length];
+    setTasks(prev => prev.map(x => x.id===t.id ? {...x, status:next} : x));
+  };
+
+  const priCol  = p => PRIORITY_COLOR[p] ?? iOS.label3;
+  const statCol = s => s==="Complete"?"#30D158":s==="In Progress"?iOS.blue:s==="Blocked"?iOS.red:iOS.label3;
+
+  // ── Task detail sheet ──
+  if(detail) {
+    const t = tasks.find(x=>x.id===detail);
+    if(!t) { setDetail(null); return null; }
+    const site = sites_all.find(s=>s.id===t.siteId);
+    const proj = projects_all.find(p=>p.id===t.projectId);
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease"}}>
+        <NavBar title="Task Detail"
+          onBack={()=>setDetail(null)} backLabel="Tasks"
+          rightItem={
+            <button onClick={()=>openEdit(t)} style={{background:"none",border:"none",
+              color:iOS.blue,fontSize:15,fontWeight:600,cursor:"pointer"}}>Edit</button>
+          }/>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px 32px"}}>
+          {/* Hero */}
+          <div style={{background:iOS.bg2,borderRadius:14,padding:16,marginBottom:20,
+            borderLeft:`3px solid ${priCol(t.priority)}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <Badge label={t.priority} color={priCol(t.priority)}/>
+              <Badge label={t.status} color={statCol(t.status)}/>
+            </div>
+            <div style={{...T.headline,marginBottom:4,lineHeight:1.35}}>{t.what}</div>
+            {t.who && <div style={{...T.footnote,color:iOS.label2,display:"flex",alignItems:"center",gap:5}}>
+              <Icon name="person" size={12} color={iOS.label3}/>{t.who}
+            </div>}
+          </div>
+
+          <Section header="Dates">
+            {[
+              {l:"Start Date", v:t.startDate||"—"},
+              {l:"Due Date",   v:t.dueDate||"—"},
+            ].map((d,i,arr)=>(
+              <ListRow key={d.l} title={d.l}
+                right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                showChevron={false} last={i===arr.length-1}/>
+            ))}
+          </Section>
+
+          {(site||proj) && (
+            <Section header="Related">
+              {site && <ListRow left={<IconBox name="building" color={iOS.teal} boxSize={32} radius={8}/>}
+                title={site.name} subtitle="Property" showChevron={false} last={!proj}/>}
+              {proj && <ListRow left={<IconBox name="folder" color={iOS.blue} boxSize={32} radius={8}/>}
+                title={proj.name} subtitle="Project" showChevron={false} last/>}
+            </Section>
+          )}
+
+          {t.notes && (
+            <Section header="Notes">
+              <div style={{padding:"12px 14px"}}>
+                <div style={{...T.subhead,color:iOS.label2,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{t.notes}</div>
+              </div>
+            </Section>
+          )}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <IOSBtn variant="tinted" color={iOS.blue} full onPress={()=>cycleStatus(t)}>
+              Mark as: {TASK_STATUS[(TASK_STATUS.indexOf(t.status)+1)%TASK_STATUS.length]}
+            </IOSBtn>
+            <IOSBtn variant="destructive" full onPress={()=>remove(t.id)}>Delete Task</IOSBtn>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Task list ──
+  return (
+    <div style={inline?{}:{flex:1,display:"flex",flexDirection:"column"}}>
+      <div style={inline?{}:{flex:1,overflowY:"auto",padding:"12px 14px 28px"}}>
+
+        {/* Priority summary strip */}
+        {visible.length>0 && (()=>{
+          const counts={High:0,Medium:0,Low:0};
+          visible.forEach(t=>{if(counts[t.priority]!==undefined)counts[t.priority]++;});
+          return (
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {Object.entries(counts).map(([p,n])=>(
+                <div key={p} style={{
+                  flex:1,background:iOS.bg2,borderRadius:12,padding:"10px 8px",
+                  textAlign:"center",borderTop:`2px solid ${priCol(p)}`,
+                }}>
+                  <div style={{fontSize:22,fontWeight:700,color:priCol(p),letterSpacing:"-1px",lineHeight:1}}>{n}</div>
+                  <div style={{fontSize:10,color:iOS.label3,marginTop:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{p}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* Group by status */}
+        {visible.length===0 ? (
+          <div style={{background:iOS.bg2,borderRadius:14,padding:40,textAlign:"center",
+            border:`1px dashed ${iOS.separator}`}}>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+              <Icon name="checklist" size={36} color={iOS.label3}/>
+            </div>
+            <div style={{...T.headline,marginBottom:6}}>No Tasks</div>
+            <div style={{...T.footnote,color:iOS.label2}}>Tap + Add Task to get started</div>
+          </div>
+        ) : (
+          TASK_STATUS.map(status=>{
+            const group = visible.filter(t=>t.status===status);
+            if(!group.length) return null;
+            return (
+              <Section key={status} header={`${status} · ${group.length}`}>
+                {group.map((t,i)=>(
+                  <ListRow key={t.id}
+                    left={
+                      <div style={{
+                        width:36,height:36,borderRadius:10,
+                        background:`${priCol(t.priority)}18`,
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        borderLeft:`3px solid ${priCol(t.priority)}`,
+                      }}>
+                        <Icon name="checklist" size={16} color={priCol(t.priority)}/>
+                      </div>
+                    }
+                    title={t.what}
+                    subtitle={[t.who, t.dueDate?"Due "+t.dueDate:null].filter(Boolean).join(" · ")}
+                    right={<Badge label={t.priority} color={priCol(t.priority)}/>}
+                    onPress={()=>inline ? openEdit(t) : setDetail(t.id)}
+                    last={i===group.length-1}
+                  />
+                ))}
+              </Section>
+            );
+          })
+        )}
+
+        <div style={{marginTop:visible.length>0?4:16}}>
+          <IOSBtn variant="tinted" color={iOS.blue} full onPress={openAdd}>+ Add Task</IOSBtn>
+        </div>
+      </div>
+
+      {/* Add / Edit sheet */}
+      <Sheet open={sheet} onClose={()=>setSheet(false)}
+        title={editId?"Edit Task":"New Task"} detent="large">
+        <div style={{display:"flex",flexDirection:"column",gap:13,paddingBottom:32}}>
+
+          <Field label="What" value={form.what} onChange={v=>setForm(f=>({...f,what:v}))}
+            placeholder="Describe the task…"/>
+
+          <Field label="Who" value={form.who} onChange={v=>setForm(f=>({...f,who:v}))}
+            placeholder="Assigned to…"/>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <IOSSelect label="Priority" value={form.priority}
+              onChange={v=>setForm(f=>({...f,priority:v}))}
+              options={["High","Medium","Low"]}/>
+            <IOSSelect label="Status" value={form.status}
+              onChange={v=>setForm(f=>({...f,status:v}))}
+              options={TASK_STATUS}/>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Start Date" value={form.startDate} type="date"
+              onChange={v=>setForm(f=>({...f,startDate:v}))}/>
+            <Field label="Due Date" value={form.dueDate} type="date"
+              onChange={v=>setForm(f=>({...f,dueDate:v}))}/>
+          </div>
+
+          {sites_all.length>0 && (
+            <IOSSelect label="Related Property" value={form.siteId}
+              onChange={v=>setForm(f=>({...f,siteId:v}))}
+              options={[{value:"",label:"— None —"},...sites_all.map(s=>({value:s.id,label:s.name}))]}/>
+          )}
+
+          {projects_all.length>0 && (
+            <IOSSelect label="Related Project" value={form.projectId}
+              onChange={v=>setForm(f=>({...f,projectId:v}))}
+              options={[{value:"",label:"— None —"},...projects_all.map(p=>({value:p.id,label:p.name}))]}/>
+          )}
+
+          <div style={{background:iOS.bg3,borderRadius:12,overflow:"hidden"}}>
+            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}
+              placeholder="Notes…"
+              style={{
+                width:"100%",minHeight:80,background:"transparent",border:"none",
+                padding:"12px 14px",fontSize:15,color:iOS.label,outline:"none",
+                lineHeight:1.6, fontFamily:"inherit",
+              }}/>
+          </div>
+
+          <IOSBtn onPress={save} full disabled={!form.what.trim()}>
+            {editId?"Save Changes":"Add Task"}
+          </IOSBtn>
+          {editId && (
+            <IOSBtn variant="destructive" full onPress={()=>{
+              remove(editId); setSheet(false);
+            }}>Delete Task</IOSBtn>
+          )}
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
    SITE SUB-NAV (segmented control)
 ═══════════════════════════════════════════════════════ */
 function SiteSubNav({tab, setTab}) {
   const TABS = [
-    {id:"photos",   icon:"camera",   label:"Photos"    },
-    {id:"building", icon:"building", label:"Building"  },
-    {id:"leases",   icon:"doc",      label:"Leases"    },
-    {id:"util",     icon:"trending", label:"Utilization"},
-    {id:"docs",     icon:"folder",   label:"Documents" },
+    {id:"photos",   icon:"camera",    label:"Photos"    },
+    {id:"building", icon:"building",  label:"Building"  },
+    {id:"leases",   icon:"doc",       label:"Leases"    },
+    {id:"util",     icon:"trending",  label:"Utilization"},
+    {id:"docs",     icon:"folder",    label:"Docs"      },
+    {id:"tasks",    icon:"checklist", label:"Tasks"     },
   ];
   return (
     <div style={{
-      flexShrink:0, padding:"6px 12px",
+      flexShrink:0, padding:"5px 10px",
       background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
     }}>
       <div style={{
         display:"flex", background:iOS.bg3,
-        borderRadius:10, padding:3, height:38, alignItems:"center",
+        borderRadius:10, padding:2, height:36, alignItems:"center",
       }}>
         {TABS.map(t=>{
           const active=tab===t.id;
@@ -807,11 +1087,11 @@ function SiteSubNav({tab, setTab}) {
                 color:active?"#ffffff":iOS.label2,
                 display:"flex", alignItems:"center", justifyContent:"center",
                 flexDirection:"column", gap:1,
-                fontSize:9, fontWeight:active?600:400,
+                fontSize:8, fontWeight:active?600:400,
                 cursor:"pointer", transition:"background .18s, color .18s",
-                padding:"0 2px",
+                padding:"0 1px",
               }}>
-              <Icon name={t.icon} size={12} color={active?"#fff":iOS.label2}/>
+              <Icon name={t.icon} size={11} color={active?"#fff":iOS.label2}/>
               <span style={{whiteSpace:"nowrap",letterSpacing:"-.01em"}}>{t.label}</span>
             </button>
           );
@@ -824,7 +1104,7 @@ function SiteSubNav({tab, setTab}) {
 /* ═══════════════════════════════════════════════════════
    SITES
 ═══════════════════════════════════════════════════════ */
-function Sites({sites, setSites, toast}) {
+function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast}) {
   const [sel, setSel]=useState(null);
   const [sheet, setSheet]=useState(false);
   const [form, setForm]=useState({name:"",addr:"",type:"Owned",sqft:"",ch:"",status:"Active"});
@@ -1129,6 +1409,15 @@ function Sites({sites, setSites, toast}) {
             </div>
           )}
 
+          {/* ══ TASKS ══ */}
+          {siteTab==="tasks" && (
+            <TasksPanel
+              tasks={tasks} setTasks={setTasks}
+              filterKey="siteId" filterId={site.id}
+              sites_all={sites_all??[]} projects_all={projects_all??[]}
+              toast={toast}/>
+          )}
+
         </div>
       </div>
     );
@@ -1173,7 +1462,7 @@ function Sites({sites, setSites, toast}) {
 /* ═══════════════════════════════════════════════════════
    PROJECTS
 ═══════════════════════════════════════════════════════ */
-function Projects({projects, setProjects, sites, comps, setComps, toast}) {
+function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setTasks=()=>{}, sites_all=[], toast}) {
   const [sel,setSel]=useState(null);
   const [sheet,setSheet]=useState(false);
   const [compSheet,setCompSheet]=useState(false);
@@ -1201,7 +1490,7 @@ function Projects({projects, setProjects, sites, comps, setComps, toast}) {
   if(proj){
     const site=sites.find(s=>s.id===proj.siteId);
     const scored=pComps.map(c=>({...c,score:calcIPS(c.scores)})).sort((a,b)=>b.score-a.score);
-    const radarData=KSD.map(k=>({
+    const barData=KSD.map(k=>({
       subject:k.label,
       ...scored.reduce((acc,c)=>({...acc,[c.name]:c.scores[k.id]??0}),{})
     }));
@@ -1245,25 +1534,77 @@ function Projects({projects, setProjects, sites, comps, setComps, toast}) {
             <IOSBtn onPress={()=>setCompSheet(true)} variant="tinted" full>+ Add Comparable</IOSBtn>
           </div>
 
-          {/* Radar */}
-          {scored.length>=2 && (
-            <Section header="KSD Head-to-Head Radar">
-              <div style={{padding:"16px 8px"}}>
-                <ResponsiveContainer width="100%" height={200}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke={`${iOS.separator}`}/>
-                    <PolarAngleAxis dataKey="subject" tick={{fontSize:9,fill:iOS.label2}}/>
-                    <PolarRadiusAxis domain={[0,10]} tick={false} axisLine={false}/>
-                    {scored.map((c,i)=>(
-                      <Radar key={c.id} name={c.name} dataKey={c.name}
-                        stroke={colors[i]} fill={colors[i]} fillOpacity={0.18} strokeWidth={2}/>
-                    ))}
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11,color:iOS.label2}}/>
-                  </RadarChart>
-                </ResponsiveContainer>
+          {/* KSD Horizontal Bar Comparison */}
+          {scored.length>=1 && (
+            <Section header="KSD Score Comparison">
+              {/* Legend */}
+              <div style={{
+                padding:"10px 14px 4px",
+                display:"flex", gap:12, flexWrap:"wrap",
+                borderBottom:`0.5px solid ${iOS.separator}`,
+              }}>
+                {scored.map((c,i)=>(
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:10,height:10,borderRadius:2,background:colors[i]??iOS.label3,flexShrink:0}}/>
+                    <span style={{fontSize:11,color:iOS.label2,fontWeight:500}}>{c.name}</span>
+                  </div>
+                ))}
               </div>
+              {/* Rows — one per KSD dimension */}
+              {KSD.map((k,ki)=>(
+                <div key={k.id} style={{
+                  padding:"9px 14px",
+                  borderBottom: ki<KSD.length-1 ? `0.5px solid ${iOS.separator}` : "none",
+                }}>
+                  {/* Dimension label */}
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:7}}>
+                    <Icon name={k.icon} size={11} color={iOS.label3}/>
+                    <span style={{fontSize:11,fontWeight:600,color:iOS.label2,textTransform:"uppercase",letterSpacing:".04em"}}>
+                      {k.label}
+                    </span>
+                    <span style={{fontSize:10,color:iOS.label3,marginLeft:"auto"}}>Wt {W[k.id]}%</span>
+                  </div>
+                  {/* One bar per comp */}
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {scored.map((c,ci)=>{
+                      const val=c.scores[k.id]??0;
+                      const pct=(val/10)*100;
+                      const col=colors[ci]??iOS.label3;
+                      return (
+                        <div key={c.id} style={{display:"flex",alignItems:"center",gap:8}}>
+                          {/* Bar track */}
+                          <div style={{flex:1,height:6,borderRadius:3,background:iOS.bg4,overflow:"hidden"}}>
+                            <div style={{
+                              height:"100%", width:`${pct}%`,
+                              background:col, borderRadius:3,
+                              transition:"width .4s ease",
+                            }}/>
+                          </div>
+                          {/* Value */}
+                          <span style={{
+                            fontSize:11,fontWeight:700,color:col,
+                            minWidth:16,textAlign:"right",
+                          }}>{val}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </Section>
           )}
+
+          {/* ══ TASKS ══ */}
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em",
+              padding:"0 4px 5px",color:iOS.label3}}>Tasks</div>
+            <TasksPanel
+              tasks={tasks} setTasks={setTasks}
+              filterKey="projectId" filterId={proj.id}
+              sites_all={sites_all} projects_all={projects}
+              toast={toast} inline/>
+          </div>
+
         </div>
 
         {/* Add comp sheet */}
@@ -2430,12 +2771,13 @@ function AppShell({user, onLogout, device}) {
   const [projects, setProjects] = useState(PROJECTS_SEED);
   const [comps, setComps] = useState(COMPS_SEED);
   const [tours, setTours] = useState(TOURS_SEED);
+  const [tasks, setTasks] = useState(TASKS_SEED);
   const toast = useCallback(msg=>setToastMsg(msg), []);
 
   const screens = {
     dashboard: <Dashboard user={user} setTab={setTab} sites={sites} projects={projects} tours={tours} comps={comps}/>,
-    sites:     <Sites sites={sites} setSites={setSites} toast={toast}/>,
-    projects:  <Projects projects={projects} setProjects={setProjects} sites={sites} comps={comps} setComps={setComps} toast={toast}/>,
+    sites:     <Sites sites={sites} setSites={setSites} tasks={tasks} setTasks={setTasks} sites_all={sites} projects_all={projects} toast={toast}/>,
+    projects:  <Projects projects={projects} setProjects={setProjects} sites={sites} comps={comps} setComps={setComps} tasks={tasks} setTasks={setTasks} sites_all={sites} toast={toast}/>,
     tours:     <Tours user={user} tours={tours} setTours={setTours} projects={projects} comps={comps} toast={toast}/>,
   };
 
