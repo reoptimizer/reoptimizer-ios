@@ -107,12 +107,12 @@ const TOURS_SEED = [
     comps:["c3"], times:{c3:"2:00 PM"} },
 ];
 const KSD = [
-  {id:"ch",label:"Clear Height",    icon:"📐"},
-  {id:"pc",label:"Power Capacity",  icon:"⚡"},
-  {id:"hp",label:"Highway Prox.",   icon:"🛣️"},
-  {id:"la",label:"Labor Avail.",    icon:"👷"},
-  {id:"ur",label:"Union Risk",      icon:"⚖️"},
-  {id:"tr",label:"Tax Rates",       icon:"🏛️"},
+  {id:"ch",label:"Clear Height",    icon:"ruler"   },
+  {id:"pc",label:"Power Capacity",  icon:"bolt"    },
+  {id:"hp",label:"Highway Prox.",   icon:"truck"   },
+  {id:"la",label:"Labor Avail.",    icon:"people"  },
+  {id:"ur",label:"Union Risk",      icon:"checklist"},
+  {id:"tr",label:"Tax Rates",       icon:"doc"     },
 ];
 const W = {ch:20,pc:20,hp:20,la:15,ur:15,tr:10};
 const calcIPS = s => KSD.reduce((a,k) => a+((W[k.id]/100)*(s[k.id]??0)), 0);
@@ -152,22 +152,66 @@ const GLOBAL_CSS = `
    iOS PRIMITIVES
 ═══════════════════════════════════════════════════════ */
 
-/* SF Symbol-style icon label */
-function SFIcon({name, size=22, color=iOS.blue, bg, label}) {
-  const icons = {
-    house:"⊞", building:"🏭", folder:"📋", map:"🗺️", person:"👤",
-    plus:"+", back:"‹", gear:"⚙️", search:"🔍", star:"★", check:"✓",
-    close:"×", invite:"✉️", photo:"📷", note:"📝", chart:"📊",
-  };
+/* ── SVG Icon system ─────────────────────────────────── */
+const ICONS = {
+  house:      <><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H5a1 1 0 01-1-1V9.5z" strokeLinejoin="round"/><path d="M9 21V12h6v9"/></>,
+  building:   <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></>,
+  folder:     <><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></>,
+  map:        <><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></>,
+  person:     <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+  people:     <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>,
+  gear:       <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></>,
+  search:     <><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>,
+  check:      <><polyline points="20 6 9 17 4 12"/></>,
+  close:      <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+  mail:       <><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></>,
+  camera:     <><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></>,
+  video:      <><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></>,
+  note:       <><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></>,
+  chart:      <><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></>,
+  cloud:      <><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></>,
+  star:       <><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></>,
+  back:       <><polyline points="15 18 9 12 15 6"/></>,
+  plus:       <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+  key:        <><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></>,
+  eye:        <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+  share:      <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
+  download:   <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+  door:       <><path d="M3 21h18M9 21V5a2 2 0 012-2h2a2 2 0 012 2v16"/><path d="M9 7h6M9 11h6M9 15h2"/></>,
+  car:        <><path d="M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v9a2 2 0 01-2 2h-2"/><circle cx="9" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></>,
+  fire:       <><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 3z"/></>,
+  bolt:       <><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>,
+  truck:      <><rect x="1" y="3" width="15" height="13" rx="1"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>,
+  grid:       <><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>,
+  lift:       <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></>,
+  ruler:      <><path d="M21.3 8.7l-9-9a1 1 0 00-1.4 0l-9 9a1 1 0 000 1.4l9 9a1 1 0 001.4 0l9-9a1 1 0 000-1.4z"/><path d="M3.3 11L7 14.7M6.3 8L10 11.7M9.3 5L13 8.7"/></>,
+  clock:      <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+  doc:        <><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></>,
+  checklist:  <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></>,
+  blueprint:  <><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></>,
+  trending:   <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>,
+  speech:     <><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></>,
+};
+
+function Icon({name, size=20, color="currentColor", strokeWidth=1.7}) {
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-      <div style={{
-        width:size+10, height:size+10, borderRadius:(size+10)*0.23,
-        background: bg ?? `${color}22`,
-        display:"flex", alignItems:"center", justifyContent:"center",
-        fontSize:size*.9,
-      }}>{icons[name] ?? name}</div>
-      {label && <span style={{ fontSize:10, fontWeight:500, color:iOS.label2 }}>{label}</span>}
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      {ICONS[name] ?? <circle cx="12" cy="12" r="8"/>}
+    </svg>
+  );
+}
+
+/* Icon in a rounded-rect pill — replaces emoji-in-div pattern */
+function IconBox({name, size=20, color=iOS.blue, boxSize=36, radius=10}) {
+  return (
+    <div style={{
+      width:boxSize, height:boxSize, borderRadius:radius,
+      background:`${color}20`,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      flexShrink:0,
+    }}>
+      <Icon name={name} size={size} color={color}/>
     </div>
   );
 }
@@ -226,8 +270,8 @@ function ListRow({left, title, subtitle, right, onPress, showChevron=true, last}
   return (
     <div onClick={onPress} className={onPress?"pressable":undefined}
       style={{
-        display:"flex", alignItems:"center", gap:12,
-        padding:"11px 16px", background:iOS.cardBg,
+        display:"flex", alignItems:"center", gap:11,
+        padding:"10px 14px", background:iOS.cardBg,
         borderBottom: last ? "none" : `0.5px solid ${iOS.separator}`,
         cursor:onPress?"pointer":"default",
       }}>
@@ -245,13 +289,13 @@ function ListRow({left, title, subtitle, right, onPress, showChevron=true, last}
 /* iOS Grouped Section */
 function Section({header, footer, children, style}) {
   return (
-    <div style={{marginBottom:32, ...style}}>
-      {header && <div style={{...T.footnote, textTransform:"uppercase", letterSpacing:".04em",
-        padding:"0 16px 6px", color:iOS.label2}}>{header}</div>}
-      <div style={{borderRadius:10, overflow:"hidden", background:iOS.cardBg}}>
+    <div style={{marginBottom:20, ...style}}>
+      {header && <div style={{fontSize:11, fontWeight:600, textTransform:"uppercase", letterSpacing:".06em",
+        padding:"0 4px 5px", color:iOS.label3}}>{header}</div>}
+      <div style={{borderRadius:12, overflow:"hidden", background:iOS.cardBg}}>
         {children}
       </div>
-      {footer && <div style={{...T.caption, padding:"6px 16px", color:iOS.label2}}>{footer}</div>}
+      {footer && <div style={{...T.caption, padding:"5px 4px", color:iOS.label3}}>{footer}</div>}
     </div>
   );
 }
@@ -305,7 +349,7 @@ function Sheet({open, onClose, title, children, detent="medium"}) {
             width:30, height:30, fontSize:15, color:iOS.label2, cursor:"pointer",
             display:"flex", alignItems:"center", justifyContent:"center"}}>×</button>
         </div>
-        <div style={{overflowY:"auto", padding:"0 16px 24px", flex:1}}>{children}</div>
+        <div style={{overflowY:"auto", padding:"0 14px 20px", flex:1}}>{children}</div>
       </div>
     </div>
   );
@@ -359,7 +403,7 @@ function Toast({msg, onDone}) {
       whiteSpace:"nowrap", border:`1px solid ${iOS.fill}`,
       animation:"toastPop .4s cubic-bezier(.34,1.56,.64,1)",
     }}>
-      <span style={{color:iOS.green, fontSize:17}}>✓</span>{msg}
+      <Icon name="check" size={16} color={iOS.green}/>{msg}
     </div>
   );
 }
@@ -449,7 +493,7 @@ function NavBar({title, large, leftItem, rightItem, onBack, backLabel="Back"}) {
       </div>
       {/* Large title row */}
       {large && (
-        <div style={{padding:"4px 16px 14px"}}>
+        <div style={{padding:"2px 16px 10px"}}>
           <div style={{...T.largeTitle}}>{title}</div>
         </div>
       )}
@@ -464,12 +508,12 @@ function TabBar({tab, setTab, role, device}) {
   const isPhone = device === "iphone";
   const tabs = role === "user"
     ? [
-        {id:"dashboard", icon:"⊞",  sf:"house.fill",    label:"Home"    },
-        {id:"sites",     icon:"🏭",  sf:"building.fill", label:"Sites"   },
-        {id:"projects",  icon:"📋",  sf:"folder.fill",   label:"Projects"},
-        {id:"tours",     icon:"🗺️",  sf:"map.fill",      label:"Tours"   },
+        {id:"dashboard", icon:"house",    label:"Home"    },
+        {id:"sites",     icon:"building", label:"Sites"   },
+        {id:"projects",  icon:"folder",   label:"Projects"},
+        {id:"tours",     icon:"map",      label:"Tours"   },
       ]
-    : [{id:"tours", icon:"🗺️", sf:"map.fill", label:"My Tour"}];
+    : [{id:"tours", icon:"map", label:"My Tour"}];
 
   return (
     <div style={{
@@ -488,10 +532,11 @@ function TabBar({tab, setTab, role, device}) {
               display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"0 4px",
             }}>
             <div style={{
-              fontSize:isPhone?24:22,
-              filter:active?"none":"grayscale(1) opacity(0.45)",
-              transition:"filter .15s",
-            }}>{t.icon}</div>
+              opacity:active?1:0.4,
+              transition:"opacity .15s",
+            }}>
+              <Icon name={t.icon} size={isPhone?24:22} color={active?iOS.blue:iOS.label2}/>
+            </div>
             <span style={{
               fontSize:isPhone?10:11, fontWeight:active?500:400,
               color:active?iOS.blue:iOS.label2, transition:"color .15s",
@@ -517,9 +562,11 @@ function Splash({onGo}) {
         width:90, height:90, borderRadius:22, marginBottom:28,
         background:"linear-gradient(145deg,#0A84FF,#40CBE0)",
         display:"flex", alignItems:"center", justifyContent:"center",
-        fontSize:44, boxShadow:"0 16px 48px rgba(10,132,255,.5)",
+        boxShadow:"0 16px 48px rgba(10,132,255,.5)",
         animation:vis?"fadeUp .5s ease":"none",
-      }}>⬡</div>
+      }}>
+        <Icon name="building" size={44} color="#fff" strokeWidth={1.4}/>
+      </div>
       <div style={{...T.largeTitle, textAlign:"center", marginBottom:10,
         animation:vis?"fadeUp .5s .1s ease both":"none"}}>REoptimizer</div>
       <div style={{...T.subhead, color:iOS.label2, textAlign:"center", marginBottom:8,
@@ -559,7 +606,12 @@ function Login({onLogin}) {
   if(recovery) return (
     <div style={{flex:1, display:"flex", flexDirection:"column", padding:"32px 24px", background:"#000"}}>
       <div style={{textAlign:"center", marginBottom:40, marginTop:32}}>
-        <div style={{fontSize:52, marginBottom:16}}>🔑</div>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+          <div style={{width:64,height:64,borderRadius:16,background:`${iOS.blue}22`,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon name="key" size={30} color={iOS.blue}/>
+          </div>
+        </div>
         <div style={{...T.title2, marginBottom:8}}>Account Recovery</div>
         <div style={{...T.footnote, color:iOS.label2}}>{sent?"Reset link sent! Check your email.":"Enter your email to receive a reset link."}</div>
       </div>
@@ -576,8 +628,10 @@ function Login({onLogin}) {
     <div style={{flex:1, display:"flex", flexDirection:"column", padding:"0 24px 24px", background:"#000", overflowY:"auto"}}>
       <div style={{textAlign:"center", padding:"40px 0 32px"}}>
         <div style={{width:64, height:64, borderRadius:16, background:"linear-gradient(145deg,#0A84FF,#40CBE0)",
-          display:"flex", alignItems:"center", justifyContent:"center", fontSize:32,
-          margin:"0 auto 16px", boxShadow:"0 8px 24px rgba(10,132,255,.4)"}}>⬡</div>
+          display:"flex", alignItems:"center", justifyContent:"center",
+          margin:"0 auto 16px", boxShadow:"0 8px 24px rgba(10,132,255,.4)"}}>
+          <Icon name="building" size={32} color="#fff" strokeWidth={1.5}/>
+        </div>
         <div style={{...T.title1, marginBottom:6}}>Welcome Back</div>
         <div style={{...T.footnote, color:iOS.label2}}>Sign in to your REoptimizer workspace</div>
       </div>
@@ -618,10 +672,10 @@ function Login({onLogin}) {
 ═══════════════════════════════════════════════════════ */
 function Dashboard({user, setTab, sites, projects, tours, comps}) {
   const stats=[
-    {label:"Sites",    val:sites.length,    icon:"🏭", color:iOS.teal  },
-    {label:"Projects", val:projects.length, icon:"📋", color:iOS.blue  },
-    {label:"Tours",    val:tours.length,    icon:"🗺️", color:iOS.orange},
-    {label:"Comps",    val:comps.length,    icon:"📊", color:iOS.indigo},
+    {label:"Sites",    val:sites.length,    icon:"building", color:iOS.teal  },
+    {label:"Projects", val:projects.length, icon:"folder",   color:iOS.blue  },
+    {label:"Tours",    val:tours.length,    icon:"map",      color:iOS.orange},
+    {label:"Comps",    val:comps.length,    icon:"chart",    color:iOS.indigo},
   ];
   return (
     <div style={{flex:1, overflowY:"auto", background:"#000"}}>
@@ -629,26 +683,28 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
         rightItem={
           <Avatar init={user.av} size={32} color={iOS.blue}/>
         }/>
-      <div style={{padding:"0 16px 24px"}}>
+      <div style={{padding:"0 14px 20px"}}>
         {/* Greeting */}
-        <div style={{padding:"16px 0 20px"}}>
+        <div style={{padding:"12px 0 16px"}}>
           <div style={{...T.title3, color:iOS.label2, marginBottom:4}}>
-            Good morning, {user.name.split(" ")[0]} 👋
+            Good morning, {user.name.split(" ")[0]}
           </div>
           <div style={{...T.footnote, color:iOS.label3}}>Your portfolio at a glance</div>
         </div>
 
         {/* Stats 2×2 */}
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:28}}>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20}}>
           {stats.map(s=>(
-            <div key={s.label} style={{background:iOS.bg2, borderRadius:14, padding:16}}>
+            <div key={s.label} style={{background:iOS.bg2, borderRadius:14, padding:14}}>
               <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start"}}>
                 <div>
                   <div style={{...T.caption2, textTransform:"uppercase", letterSpacing:".06em", marginBottom:8}}>{s.label}</div>
                   <div style={{fontSize:36, fontWeight:700, color:iOS.label, letterSpacing:"-1px", lineHeight:1}}>{s.val}</div>
                 </div>
-                <div style={{width:42, height:42, borderRadius:12, background:`${s.color}22`,
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:22}}>{s.icon}</div>
+                <div style={{width:42, height:42, borderRadius:12, background:`${s.color}20`,
+                  display:"flex", alignItems:"center", justifyContent:"center"}}>
+                  <Icon name={s.icon} size={22} color={s.color}/>
+                </div>
               </div>
             </div>
           ))}
@@ -658,8 +714,7 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
         <Section header="Recent Sites">
           {sites.slice(0,3).map((s,i)=>(
             <ListRow key={s.id}
-              left={<div style={{width:36, height:36, borderRadius:10, background:`${iOS.teal}22`,
-                display:"flex", alignItems:"center", justifyContent:"center", fontSize:18}}>🏭</div>}
+              left={<IconBox name="building" color={iOS.teal}/>}
               title={s.name} subtitle={`${s.sqft.toLocaleString()} sqft · ${s.type}`}
               right={<Badge label={s.status} color={s.status==="Active"?iOS.green:iOS.orange}/>}
               onPress={()=>setTab("sites")} last={i===sites.length-1}/>
@@ -671,8 +726,7 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
           {projects.map((p,i)=>{
             const site=sites.find(s=>s.id===p.siteId);
             return <ListRow key={p.id}
-              left={<div style={{width:36, height:36, borderRadius:10, background:`${iOS.blue}22`,
-                display:"flex", alignItems:"center", justifyContent:"center", fontSize:18}}>📋</div>}
+              left={<IconBox name="folder" color={iOS.blue}/>}
               title={p.name} subtitle={site?.name}
               right={<Badge label={p.stage} color={STAGE_COLOR[p.stage]??iOS.label3}/>}
               onPress={()=>setTab("projects")} last={i===projects.length-1}/>;
@@ -683,12 +737,11 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
         <Section header="Upcoming Tours">
           {tours.map((t,i)=>{
             const proj=projects.find(p=>p.id===t.pid);
+            const isLive=t.status==="In Progress";
             return <ListRow key={t.id}
-              left={<div style={{width:36, height:36, borderRadius:10,
-                background:`${t.status==="In Progress"?iOS.orange:iOS.blue}22`,
-                display:"flex", alignItems:"center", justifyContent:"center", fontSize:18}}>🗺️</div>}
+              left={<IconBox name="map" color={isLive?iOS.orange:iOS.blue}/>}
               title={t.name} subtitle={`${proj?.name} · ${t.date}`}
-              right={<Badge label={t.status} color={t.status==="In Progress"?iOS.orange:iOS.blue}/>}
+              right={<Badge label={t.status} color={isLive?iOS.orange:iOS.blue}/>}
               onPress={()=>setTab("tours")} last={i===tours.length-1}/>;
           })}
         </Section>
@@ -701,7 +754,7 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
    DOC ACTIONS (View / Share / Download)
 ═══════════════════════════════════════════════════════ */
 function DocActions({name, onToast}) {
-  const btn = (icon, label, color, onPress) => (
+  const btn = (iconEl, label, color, onPress) => (
     <button onClick={e=>{e.stopPropagation();onPress();}} className="pressable"
       style={{
         display:"flex",flexDirection:"column",alignItems:"center",gap:3,
@@ -709,17 +762,17 @@ function DocActions({name, onToast}) {
       }}>
       <div style={{
         width:30,height:30,borderRadius:8,
-        background:`${color}22`,
-        display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,
-      }}>{icon}</div>
+        background:`${color}20`,
+        display:"flex",alignItems:"center",justifyContent:"center",
+      }}>{iconEl}</div>
       <span style={{fontSize:9,fontWeight:600,color,letterSpacing:".01em"}}>{label}</span>
     </button>
   );
   return (
     <div style={{display:"flex",alignItems:"center",gap:6}}>
-      {btn("👁️","View",  iOS.blue,   ()=>onToast(`Viewing ${name}`))}
-      {btn("↗️","Share", iOS.indigo, ()=>onToast(`Sharing ${name}`))}
-      {btn("↓",  "Save",  iOS.teal,   ()=>onToast(`Downloading ${name}`))}
+      {btn(<Icon name="eye"      size={14} color={iOS.blue}  />, "View",  iOS.blue,   ()=>onToast(`Viewing ${name}`))}
+      {btn(<Icon name="share"    size={14} color={iOS.indigo}/>, "Share", iOS.indigo, ()=>onToast(`Sharing ${name}`))}
+      {btn(<Icon name="download" size={14} color={iOS.teal}  />, "Save",  iOS.teal,   ()=>onToast(`Downloading ${name}`))}
     </div>
   );
 }
@@ -729,27 +782,27 @@ function DocActions({name, onToast}) {
 ═══════════════════════════════════════════════════════ */
 function SiteSubNav({tab, setTab}) {
   const TABS = [
-    {id:"photos",   icon:"📷", label:"Photos"    },
-    {id:"building", icon:"🏗️", label:"Building"  },
-    {id:"leases",   icon:"📄", label:"Leases"    },
-    {id:"util",     icon:"📈", label:"Utilization"},
-    {id:"docs",     icon:"🗂️", label:"Documents" },
+    {id:"photos",   icon:"camera",   label:"Photos"    },
+    {id:"building", icon:"building", label:"Building"  },
+    {id:"leases",   icon:"doc",      label:"Leases"    },
+    {id:"util",     icon:"trending", label:"Utilization"},
+    {id:"docs",     icon:"folder",   label:"Documents" },
   ];
   return (
     <div style={{
-      flexShrink:0, padding:"8px 12px",
+      flexShrink:0, padding:"6px 12px",
       background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
     }}>
       <div style={{
         display:"flex", background:iOS.bg3,
-        borderRadius:12, padding:3, height:40, alignItems:"center",
+        borderRadius:10, padding:3, height:38, alignItems:"center",
       }}>
         {TABS.map(t=>{
           const active=tab===t.id;
           return (
             <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
               style={{
-                flex:1, height:"100%", border:"none", borderRadius:9,
+                flex:1, height:"100%", border:"none", borderRadius:8,
                 background:active?iOS.blue:"transparent",
                 color:active?"#ffffff":iOS.label2,
                 display:"flex", alignItems:"center", justifyContent:"center",
@@ -758,7 +811,7 @@ function SiteSubNav({tab, setTab}) {
                 cursor:"pointer", transition:"background .18s, color .18s",
                 padding:"0 2px",
               }}>
-              <span style={{fontSize:13}}>{t.icon}</span>
+              <Icon name={t.icon} size={12} color={active?"#fff":iOS.label2}/>
               <span style={{whiteSpace:"nowrap",letterSpacing:"-.01em"}}>{t.label}</span>
             </button>
           );
@@ -815,7 +868,7 @@ function Sites({sites, setSites, toast}) {
         {/* Pinned sub-nav */}
         <SiteSubNav tab={siteTab} setTab={setSiteTab}/>
 
-        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px 28px"}}>
 
           {/* ══ PHOTOS ══ */}
           {siteTab==="photos" && (
@@ -859,13 +912,15 @@ function Sites({sites, setSites, toast}) {
                   textAlign:"center",marginBottom:16,
                   border:`1px dashed ${iOS.separator}`,
                 }}>
-                  <div style={{fontSize:44,marginBottom:12}}>📷</div>
+                  <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+                    <Icon name="camera" size={40} color={iOS.label3}/>
+                  </div>
                   <div style={{...T.headline,marginBottom:6}}>No Photos Yet</div>
                   <div style={{...T.footnote,color:iOS.label2}}>Add photos and videos of this site</div>
                 </div>
               )}
               <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>siteFileRef.current?.click()}>
-                📷 {photos.length>0?`${photos.length} file${photos.length>1?"s":""} · Add More`:"Add Photos & Videos"}
+                {photos.length>0?`${photos.length} file${photos.length>1?"s":""} · Add More`:"Add Photos & Videos"}
               </IOSBtn>
             </div>
           )}
@@ -888,17 +943,19 @@ function Sites({sites, setSites, toast}) {
               </Section>
               <Section header="Specifications">
                 {[
-                  {icon:"🚪",label:"Dock Doors",       val:"24"},
-                  {icon:"🚗",label:"Drive-In Doors",    val:"4"},
-                  {icon:"🔥",label:"Fire Suppression",  val:"ESFR"},
-                  {icon:"⚡",label:"Power",              val:"2,000A / 480V 3-Phase"},
-                  {icon:"🏢",label:"Office Area",        val:"4,200 sqft"},
-                  {icon:"🚛",label:"Truck Court",        val:"185 ft"},
-                  {icon:"🔲",label:"Column Spacing",     val:"52' × 50'"},
-                  {icon:"🛗", label:"Sprinkler System",  val:"ESFR K-25"},
+                  {icon:"door",      label:"Dock Doors",       val:"24"},
+                  {icon:"car",       label:"Drive-In Doors",    val:"4"},
+                  {icon:"fire",      label:"Fire Suppression",  val:"ESFR"},
+                  {icon:"bolt",      label:"Power",              val:"2,000A / 480V 3-Phase"},
+                  {icon:"building",  label:"Office Area",        val:"4,200 sqft"},
+                  {icon:"truck",     label:"Truck Court",        val:"185 ft"},
+                  {icon:"grid",      label:"Column Spacing",     val:"52' × 50'"},
+                  {icon:"lift",      label:"Sprinkler System",  val:"ESFR K-25"},
                 ].map((d,i,arr)=>(
                   <ListRow key={d.label}
-                    left={<span style={{fontSize:18}}>{d.icon}</span>}
+                    left={<div style={{width:32,height:32,borderRadius:8,background:iOS.bg3,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon name={d.icon} size={16} color={iOS.label2}/>
+                    </div>}
                     title={d.label}
                     right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
                     showChevron={false} last={i===arr.length-1}/>
@@ -932,9 +989,7 @@ function Sites({sites, setSites, toast}) {
                   {tenant:"NovaTech Logistics",    sqft:42000, rate:9.10, exp:"Mar 2025", status:"Expiring"},
                 ].map((l,i,arr)=>(
                   <ListRow key={l.tenant}
-                    left={<div style={{width:36,height:36,borderRadius:10,
-                      background:l.status==="Active"?`${iOS.green}22`:`${iOS.orange}22`,
-                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📄</div>}
+                    left={<IconBox name="doc" color={l.status==="Active"?iOS.green:iOS.orange}/>}
                     title={l.tenant}
                     subtitle={`${l.sqft.toLocaleString()} sqft · $${l.rate}/sqft`}
                     right={<div style={{textAlign:"right"}}>
@@ -1031,46 +1086,40 @@ function Sites({sites, setSites, toast}) {
             <div>
               <Section header="Lease Documents">
                 {[
-                  {icon:"📋",name:"Master Lease Agreement.pdf",  date:"Jan 3, 2025",  size:"2.4 MB"},
-                  {icon:"📋",name:"Apex Distribution Lease.pdf", date:"Nov 12, 2024", size:"1.8 MB"},
-                  {icon:"📋",name:"NovaTech Lease Amendment.pdf",date:"Sep 5, 2024",  size:"890 KB"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.name}
-                    left={<div style={{width:36,height:36,borderRadius:10,
-                      background:`${iOS.orange}22`,display:"flex",
-                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
-                    title={d.name} subtitle={`${d.date} · ${d.size}`}
-                    right={<DocActions name={d.name} onToast={toast}/>}
+                  "Master Lease Agreement.pdf",
+                  "Apex Distribution Lease.pdf",
+                  "NovaTech Lease Amendment.pdf",
+                ].map((name,i,arr)=>(
+                  <ListRow key={name}
+                    left={<IconBox name="doc" color={iOS.orange}/>}
+                    title={name} subtitle={["Jan 3, 2025 · 2.4 MB","Nov 12, 2024 · 1.8 MB","Sep 5, 2024 · 890 KB"][i]}
+                    right={<DocActions name={name} onToast={toast}/>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
               <Section header="Inspections & Compliance">
                 {[
-                  {icon:"✅",name:"Fire Inspection Report Q4 2024.pdf", date:"Oct 18, 2024", size:"540 KB"},
-                  {icon:"✅",name:"OSHA Compliance Certificate.pdf",     date:"Aug 2, 2024",  size:"320 KB"},
-                  {icon:"✅",name:"Environmental Assessment 2024.pdf",   date:"Jul 15, 2024", size:"3.1 MB"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.name}
-                    left={<div style={{width:36,height:36,borderRadius:10,
-                      background:`${iOS.green}22`,display:"flex",
-                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
-                    title={d.name} subtitle={`${d.date} · ${d.size}`}
-                    right={<DocActions name={d.name} onToast={toast}/>}
+                  "Fire Inspection Report Q4 2024.pdf",
+                  "OSHA Compliance Certificate.pdf",
+                  "Environmental Assessment 2024.pdf",
+                ].map((name,i,arr)=>(
+                  <ListRow key={name}
+                    left={<IconBox name="checklist" color={iOS.green}/>}
+                    title={name} subtitle={["Oct 18, 2024 · 540 KB","Aug 2, 2024 · 320 KB","Jul 15, 2024 · 3.1 MB"][i]}
+                    right={<DocActions name={name} onToast={toast}/>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
               <Section header="Engineering & Plans">
                 {[
-                  {icon:"📐",name:"Floor Plan – As Built.dwg",      date:"2022",        size:"18 MB"},
-                  {icon:"📐",name:"Electrical Single-Line.pdf",      date:"2022",        size:"6.2 MB"},
-                  {icon:"📐",name:"Sprinkler Layout.pdf",            date:"Mar 1, 2024", size:"4.8 MB"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.name}
-                    left={<div style={{width:36,height:36,borderRadius:10,
-                      background:`${iOS.indigo}22`,display:"flex",
-                      alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
-                    title={d.name} subtitle={`${d.date} · ${d.size}`}
-                    right={<DocActions name={d.name} onToast={toast}/>}
+                  "Floor Plan – As Built.dwg",
+                  "Electrical Single-Line.pdf",
+                  "Sprinkler Layout.pdf",
+                ].map((name,i,arr)=>(
+                  <ListRow key={name}
+                    left={<IconBox name="blueprint" color={iOS.indigo}/>}
+                    title={name} subtitle={["2022 · 18 MB","2022 · 6.2 MB","Mar 1, 2024 · 4.8 MB"][i]}
+                    right={<DocActions name={name} onToast={toast}/>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
@@ -1092,12 +1141,11 @@ function Sites({sites, setSites, toast}) {
           color:iOS.blue, fontSize:17, cursor:"pointer", display:"flex", alignItems:"center", gap:4}}>
           <span style={{fontSize:22, fontWeight:300}}>+</span> Add
         </button>}/>
-      <div style={{flex:1, overflowY:"auto", padding:"0 16px 24px"}}>
+      <div style={{flex:1, overflowY:"auto", padding:"0 14px 20px"}}>
         <Section>
           {sites.map((s,i)=>(
             <ListRow key={s.id}
-              left={<div style={{width:40, height:40, borderRadius:12, background:`${iOS.teal}22`,
-                display:"flex", alignItems:"center", justifyContent:"center", fontSize:20}}>🏭</div>}
+              left={<IconBox name="building" color={iOS.teal} boxSize={40} radius={12}/>}
               title={s.name} subtitle={`${s.sqft.toLocaleString()} sqft · ${s.type} · ${s.ch}' clear`}
               right={<Badge label={s.status} color={s.status==="Active"?iOS.green:iOS.orange}/>}
               onPress={()=>setSel(s.id)} last={i===sites.length-1}/>
@@ -1163,11 +1211,10 @@ function Projects({projects, setProjects, sites, comps, setComps, toast}) {
       <div style={{flex:1, display:"flex", flexDirection:"column", background:"#000", position:"relative", animation:"slideR .28s ease"}}>
         <NavBar title={proj.name} onBack={()=>setSel(null)} backLabel="Projects"
           rightItem={<Badge label={proj.stage} color={STAGE_COLOR[proj.stage]??iOS.label3}/>}/>
-        <div style={{flex:1, overflowY:"auto", padding:"16px 16px 32px"}}>
+        <div style={{flex:1, overflowY:"auto", padding:"12px 14px 28px"}}>
           {/* Site */}
           <Section header="Linked Site">
-            <ListRow left={<div style={{width:36,height:36,borderRadius:10,background:`${iOS.teal}22`,
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🏭</div>}
+            <ListRow left={<IconBox name="building" color={iOS.teal}/>}
               title={site?.name??"No site"} subtitle={site?.addr} showChevron={false} last/>
           </Section>
 
@@ -1233,7 +1280,9 @@ function Projects({projects, setProjects, sites, comps, setComps, toast}) {
               {KSD.map(k=>(
                 <div key={k.id} style={{marginBottom:16}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                    <span style={{...T.subhead}}>{k.icon} {k.label}</span>
+                    <span style={{...T.subhead,display:"flex",alignItems:"center",gap:6}}>
+                      <Icon name={k.icon} size={14} color={iOS.label2}/>{k.label}
+                    </span>
                     <span style={{fontWeight:700,color:iOS.blue,fontSize:16}}>{cf.scores[k.id]}</span>
                   </div>
                   <input type="range" min={0} max={10} value={cf.scores[k.id]}
@@ -1259,14 +1308,13 @@ function Projects({projects, setProjects, sites, comps, setComps, toast}) {
           color:iOS.blue,fontSize:17,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
           <span style={{fontSize:22,fontWeight:300}}>+</span> New
         </button>}/>
-      <div style={{flex:1,overflowY:"auto",padding:"0 16px 24px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"0 14px 20px"}}>
         <Section>
           {projects.map((p,i)=>{
             const site=sites.find(s=>s.id===p.siteId);
             const pc=comps.filter(c=>p.comps.includes(c.id));
             return <ListRow key={p.id}
-              left={<div style={{width:40,height:40,borderRadius:12,background:`${iOS.blue}22`,
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📋</div>}
+              left={<IconBox name="folder" color={iOS.blue} boxSize={40} radius={12}/>}
               title={p.name} subtitle={`${site?.name??""} · ${pc.length} comps`}
               right={<Badge label={p.stage} color={STAGE_COLOR[p.stage]??iOS.label3}/>}
               onPress={()=>setSel(p.id)} last={i===projects.length-1}/>;
@@ -1370,7 +1418,7 @@ function MediaSection({ tourId, compId, items, onAdd, onRemove }) {
           <input ref={fileInputRef} type="file" accept="image/*,video/*"
             multiple style={{ display: "none" }} onChange={handleFiles}/>
           <IOSBtn variant="tinted" full onPress={() => fileInputRef.current?.click()}>
-            📷 {items.length > 0
+            {items.length > 0
               ? `${items.length} file${items.length > 1 ? "s" : ""} · Add More`
               : "Add Site Photos & Videos"}
           </IOSBtn>
@@ -1385,33 +1433,33 @@ function MediaSection({ tourId, compId, items, onAdd, onRemove }) {
 ═══════════════════════════════════════════════════════ */
 function CompSubNav({tab, setTab}) {
   const TABS = [
-    {id:"photos",   icon:"📷", label:"Photos"  },
-    {id:"building", icon:"🏗️", label:"Building"},
-    {id:"docs",     icon:"🗂️", label:"Docs"    },
-    {id:"scoring",  icon:"📊", label:"Scoring" },
+    {id:"photos",   icon:"camera",   label:"Photos"  },
+    {id:"building", icon:"building", label:"Building"},
+    {id:"docs",     icon:"folder",   label:"Docs"    },
+    {id:"scoring",  icon:"chart",    label:"Scoring" },
   ];
   return (
     <div style={{
-      flexShrink:0, padding:"8px 16px",
+      flexShrink:0, padding:"6px 16px",
       background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
     }}>
       <div style={{
         display:"flex", background:iOS.bg3,
-        borderRadius:12, padding:4, height:44, alignItems:"center",
+        borderRadius:10, padding:3, height:40, alignItems:"center",
       }}>
         {TABS.map(t=>{
           const active=tab===t.id;
           return (
             <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
               style={{
-                flex:1, height:"100%", border:"none", borderRadius:9,
+                flex:1, height:"100%", border:"none", borderRadius:8,
                 background:active?iOS.blue:"transparent",
                 color:active?"#ffffff":iOS.label2,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                gap:4, fontSize:12, fontWeight:active?600:400,
+                gap:5, fontSize:12, fontWeight:active?600:400,
                 cursor:"pointer", transition:"background .18s, color .18s", padding:"0 4px",
               }}>
-              <span style={{fontSize:14}}>{t.icon}</span>
+              <Icon name={t.icon} size={13} color={active?"#fff":iOS.label2}/>
               <span style={{whiteSpace:"nowrap"}}>{t.label}</span>
             </button>
           );
@@ -1426,34 +1474,34 @@ function CompSubNav({tab, setTab}) {
 ═══════════════════════════════════════════════════════ */
 function TourSubNav({tab, setTab}) {
   const TABS = [
-    {id:"map",        icon:"🗺️", label:"Map"       },
-    {id:"properties", icon:"🏢", label:"Properties"},
-    {id:"people",     icon:"👥", label:"People"    },
-    {id:"scores",     icon:"📊", label:"Scores"    },
+    {id:"map",        icon:"map",      label:"Map"       },
+    {id:"properties", icon:"building", label:"Properties"},
+    {id:"people",     icon:"people",   label:"People"    },
+    {id:"scores",     icon:"chart",    label:"Scores"    },
   ];
   return (
     <div style={{
-      flexShrink:0, padding:"8px 16px",
+      flexShrink:0, padding:"6px 16px",
       background:iOS.bg2, borderBottom:`0.5px solid ${iOS.separator}`,
     }}>
       <div style={{
         display:"flex", background:iOS.bg3,
-        borderRadius:12, padding:4, height:44, alignItems:"center",
+        borderRadius:10, padding:3, height:40, alignItems:"center",
       }}>
         {TABS.map(t => {
           const active = tab === t.id;
           return (
             <button key={t.id} onClick={()=>setTab(t.id)} className="pressable"
               style={{
-                flex:1, height:"100%", border:"none", borderRadius:9,
+                flex:1, height:"100%", border:"none", borderRadius:8,
                 background:active ? iOS.blue : "transparent",
                 color:active ? "#ffffff" : iOS.label2,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                gap:4, fontSize:12, fontWeight:active?600:400,
+                gap:5, fontSize:12, fontWeight:active?600:400,
                 cursor:"pointer", transition:"background .18s, color .18s",
                 padding:"0 4px",
               }}>
-              <span style={{fontSize:14}}>{t.icon}</span>
+              <Icon name={t.icon} size={13} color={active?"#fff":iOS.label2}/>
               <span style={{whiteSpace:"nowrap"}}>{t.label}</span>
             </button>
           );
@@ -1636,7 +1684,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
         <CompSubNav tab={compTab} setTab={setCompTab}/>
 
         {/* Scrollable content — paddingBottom leaves room for sticky bar */}
-        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 100px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px 96px"}}>
 
           {/* ══ PHOTOS ══ */}
           {compTab==="photos" && (
@@ -1666,7 +1714,9 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
               ) : (
                 <div style={{background:iOS.bg2,borderRadius:14,padding:48,textAlign:"center",
                   marginBottom:16,border:`1px dashed ${iOS.separator}`}}>
-                  <div style={{fontSize:44,marginBottom:12}}>📷</div>
+                  <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+                    <Icon name="camera" size={40} color={iOS.label3}/>
+                  </div>
                   <div style={{...T.headline,marginBottom:6}}>No Photos Yet</div>
                   <div style={{...T.footnote,color:iOS.label2}}>
                     Use the buttons below to add photos or video
@@ -1674,7 +1724,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                 </div>
               )}
               <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>quickPhotoRef.current?.click()}>
-                📷 {compMedia.length>0?`${compMedia.length} file${compMedia.length>1?"s":""} · Add More`:"Add Photos & Videos"}
+                {compMedia.length>0?`${compMedia.length} file${compMedia.length>1?"s":""} · Add More`:"Add Photos & Videos"}
               </IOSBtn>
             </div>
           )}
@@ -1697,15 +1747,17 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
               </Section>
               <Section header="Specifications">
                 {[
-                  {icon:"🚪",label:"Dock Doors",      val:"18"},
-                  {icon:"🚗",label:"Drive-In Doors",   val:"2"},
-                  {icon:"⚡",label:"Power",             val:"1,200A / 480V"},
-                  {icon:"🔥",label:"Fire Suppression",  val:"ESFR"},
-                  {icon:"🚛",label:"Truck Court",       val:"130 ft"},
-                  {icon:"🔲",label:"Column Spacing",    val:"50' × 48'"},
+                  {icon:"door",    label:"Dock Doors",      val:"18"},
+                  {icon:"car",     label:"Drive-In Doors",   val:"2"},
+                  {icon:"bolt",    label:"Power",             val:"1,200A / 480V"},
+                  {icon:"fire",    label:"Fire Suppression",  val:"ESFR"},
+                  {icon:"truck",   label:"Truck Court",       val:"130 ft"},
+                  {icon:"grid",    label:"Column Spacing",    val:"50' × 48'"},
                 ].map((d,i,arr)=>(
                   <ListRow key={d.label}
-                    left={<span style={{fontSize:18}}>{d.icon}</span>}
+                    left={<div style={{width:32,height:32,borderRadius:8,background:iOS.bg3,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon name={d.icon} size={16} color={iOS.label2}/>
+                    </div>}
                     title={d.label}
                     right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
                     showChevron={false} last={i===arr.length-1}/>
@@ -1714,7 +1766,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
               <Section header="Location">
                 <ListRow title="Open in Maps" subtitle={comp.addr}
                   onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(comp.addr)}`,"_blank")}
-                  left={<span style={{fontSize:20}}>🗺️</span>}
+                  left={<IconBox name="map" color={iOS.blue}/>}
                   last/>
               </Section>
             </div>
@@ -1725,28 +1777,26 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
             <div>
               <Section header="Property Documents">
                 {[
-                  {icon:"📋",name:"Property Brochure.pdf",      date:"Jan 2025",  size:"3.2 MB"},
-                  {icon:"📋",name:"Offering Memorandum.pdf",     date:"Dec 2024",  size:"8.1 MB"},
-                  {icon:"📋",name:"Lease Abstract.pdf",          date:"Nov 2024",  size:"1.4 MB"},
+                  {name:"Property Brochure.pdf",    sub:"Jan 2025 · 3.2 MB"},
+                  {name:"Offering Memorandum.pdf",  sub:"Dec 2024 · 8.1 MB"},
+                  {name:"Lease Abstract.pdf",        sub:"Nov 2024 · 1.4 MB"},
                 ].map((d,i,arr)=>(
                   <ListRow key={d.name}
-                    left={<div style={{width:36,height:36,borderRadius:10,background:`${iOS.orange}22`,
-                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
-                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    left={<IconBox name="doc" color={iOS.orange}/>}
+                    title={d.name} subtitle={d.sub}
                     right={<DocActions name={d.name} onToast={toast}/>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
               <Section header="Due Diligence">
                 {[
-                  {icon:"✅",name:"Phase I Environmental.pdf",   date:"Oct 2024",  size:"5.4 MB"},
-                  {icon:"✅",name:"Property Condition Report.pdf",date:"Sep 2024",  size:"2.9 MB"},
-                  {icon:"✅",name:"Survey & Legal Description.pdf",date:"Aug 2024", size:"1.1 MB"},
+                  {name:"Phase I Environmental.pdf",     sub:"Oct 2024 · 5.4 MB"},
+                  {name:"Property Condition Report.pdf", sub:"Sep 2024 · 2.9 MB"},
+                  {name:"Survey & Legal Description.pdf",sub:"Aug 2024 · 1.1 MB"},
                 ].map((d,i,arr)=>(
                   <ListRow key={d.name}
-                    left={<div style={{width:36,height:36,borderRadius:10,background:`${iOS.green}22`,
-                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{d.icon}</div>}
-                    title={d.name} subtitle={`${d.date} · ${d.size}`}
+                    left={<IconBox name="checklist" color={iOS.green}/>}
+                    title={d.name} subtitle={d.sub}
                     right={<DocActions name={d.name} onToast={toast}/>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
@@ -1785,7 +1835,9 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                     return (
                       <div key={k.id} style={{marginBottom:i<KSD.length-1?20:8}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                          <span style={{...T.subhead}}>{k.icon} {k.label}</span>
+                          <span style={{...T.subhead,display:"flex",alignItems:"center",gap:6}}>
+                            <Icon name={k.icon} size={14} color={iOS.label2}/>{k.label}
+                          </span>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{...T.caption,color:iOS.label3}}>Wt:{W[k.id]}%</span>
                             <span style={{fontSize:18,fontWeight:700,color:c,minWidth:24,textAlign:"right"}}>{val}</span>
@@ -1826,7 +1878,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                     ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
                         border:"2px solid rgba(48,209,88,0.3)",borderTopColor:iOS.green,
                         animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
-                    : "☁️ Sync to Web"}
+                    : "Sync to Web"}
                 </IOSBtn>
               </div>
             </div>
@@ -1842,39 +1894,25 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           padding:"10px 16px 16px",
           display:"flex", gap:10,
         }}>
-          <button className="pressable"
-            onClick={()=>{setCommentText("");setCommentSheet(true);}}
-            style={{
-              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
-              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
-              cursor:"pointer", display:"flex", flexDirection:"column",
-              alignItems:"center", gap:4,
-            }}>
-            <span style={{fontSize:20}}>💬</span>
-            <span>Comment</span>
-          </button>
-          <button className="pressable"
-            onClick={()=>quickPhotoRef.current?.click()}
-            style={{
-              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
-              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
-              cursor:"pointer", display:"flex", flexDirection:"column",
-              alignItems:"center", gap:4,
-            }}>
-            <span style={{fontSize:20}}>📷</span>
-            <span>Photo</span>
-          </button>
-          <button className="pressable"
-            onClick={()=>quickVideoRef.current?.click()}
-            style={{
-              flex:1, padding:"11px 8px", border:"none", borderRadius:12,
-              background:iOS.bg3, color:iOS.label, fontSize:13, fontWeight:600,
-              cursor:"pointer", display:"flex", flexDirection:"column",
-              alignItems:"center", gap:4,
-            }}>
-            <span style={{fontSize:20}}>🎥</span>
-            <span>Video</span>
-          </button>
+          {[
+            {label:"Comment", icon:"speech", color:iOS.blue,   onClick:()=>{setCommentText("");setCommentSheet(true);}},
+            {label:"Photo",   icon:"camera", color:iOS.teal,   onClick:()=>quickPhotoRef.current?.click()},
+            {label:"Video",   icon:"video",  color:iOS.indigo, onClick:()=>quickVideoRef.current?.click()},
+          ].map(b=>(
+            <button key={b.label} className="pressable" onClick={b.onClick}
+              style={{
+                flex:1, padding:"10px 8px", border:"none", borderRadius:12,
+                background:iOS.bg3, color:iOS.label, fontSize:12, fontWeight:600,
+                cursor:"pointer", display:"flex", flexDirection:"column",
+                alignItems:"center", gap:5,
+              }}>
+              <div style={{width:32,height:32,borderRadius:10,background:`${b.color}20`,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name={b.icon} size={16} color={b.color}/>
+              </div>
+              <span style={{color:iOS.label2}}>{b.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Comment sheet */}
@@ -1921,7 +1959,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
         <TourSubNav tab={tourTab} setTab={setTourTab}/>
 
         {/* Scrollable tab content */}
-        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 32px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px 28px"}}>
 
           {/* ══ MAP ══ */}
           {tourTab==="map" && (
@@ -2016,7 +2054,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                             display:"flex", alignItems:"center", gap:8,
                             padding:"0 4px 6px",
                           }}>
-                            <span style={{fontSize:13}}>🕐</span>
+                            <Icon name="clock" size={12} color={iOS.label3}/>
                             <span style={{...T.footnote, color:iOS.label2, fontWeight:600}}>
                               {apptTime}
                             </span>
@@ -2096,7 +2134,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
               </Section>
               {user.role!=="guest"&&(
                 <div style={{marginBottom:12}}>
-                  <IOSBtn variant="tinted" full onPress={()=>setInviteSheet(true)}>✉️ Invite Stakeholder</IOSBtn>
+                  <IOSBtn variant="tinted" full onPress={()=>setInviteSheet(true)}>Invite Stakeholder</IOSBtn>
                 </div>
               )}
               <div style={{marginBottom:20}}>
@@ -2105,7 +2143,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                     ? <><span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",
                         border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",
                         animation:"spin 0.7s linear infinite",marginRight:6}}/> Syncing…</>
-                    : "☁️ Sync to Web"}
+                    : "Sync to Web"}
                 </IOSBtn>
               </div>
             </div>
@@ -2150,7 +2188,9 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                             return (
                               <div key={k.id}>
                                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                                  <span style={{...T.caption2,color:iOS.label2}}>{k.icon} {k.label}</span>
+                                  <span style={{...T.caption2,color:iOS.label2,display:"flex",alignItems:"center",gap:3}}>
+                                  <Icon name={k.icon} size={10} color={iOS.label2}/>{k.label}
+                                </span>
                                   <span style={{...T.caption2,color:barCol,fontWeight:600}}>{contribution.toFixed(2)}</span>
                                 </div>
                                 <div style={{height:4,borderRadius:2,background:iOS.bg4,overflow:"hidden"}}>
@@ -2239,15 +2279,13 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           color:iOS.blue,fontSize:17,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
           <span style={{fontSize:22,fontWeight:300}}>+</span> New
         </button>:null}/>
-      <div style={{flex:1,overflowY:"auto",padding:"0 16px 24px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"0 14px 20px"}}>
         <Section>
           {tours.map((t,i)=>{
             const proj=projects.find(p=>p.id===t.pid);
             const isLive=t.status==="In Progress";
             return <ListRow key={t.id}
-              left={<div style={{width:40,height:40,borderRadius:12,
-                background:`${isLive?iOS.orange:iOS.blue}22`,
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🗺️</div>}
+              left={<IconBox name="map" color={isLive?iOS.orange:iOS.blue} boxSize={40} radius={12}/>}
               title={t.name} subtitle={`${proj?.name} · ${t.date}`}
               right={<Badge label={t.status} color={isLive?iOS.orange:iOS.blue}/>}
               onPress={()=>setActiveTour(t.id)} last={i===tours.length-1}/>;
@@ -2287,7 +2325,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                       </label>
                       {checked && (
                         <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:30}}>
-                          <span style={{fontSize:14}}>🕐</span>
+                          <Icon name="clock" size={14} color={iOS.label3}/>
                           <input
                             type="time"
                             value={ntForm.times[c.id]??""}
@@ -2450,7 +2488,9 @@ export default function App() {
           {/* Logo */}
           <div style={{display:"flex", alignItems:"center", gap:10}}>
             <div style={{width:32, height:32, borderRadius:9, background:"linear-gradient(135deg,#0A84FF,#40CBE0)",
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:16}}>⬡</div>
+              display:"flex", alignItems:"center", justifyContent:"center"}}>
+              <Icon name="building" size={18} color="#fff" strokeWidth={1.5}/>
+            </div>
             <span style={{color:"rgba(255,255,255,.7)", fontWeight:700, fontSize:14, letterSpacing:"-.01em"}}>REoptimizer</span>
           </div>
           {/* Device toggle */}
