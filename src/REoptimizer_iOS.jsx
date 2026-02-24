@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
+  loginBroker, requestOtp, verifyOtp, logout as apiLogout,
+  getSites, getProjects, getComps, getTours,
+  submitCompScores, getCompScores, setToken, getToken,
+  normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser,
+} from "./api.js";
+import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend
@@ -614,19 +620,50 @@ function Splash({onGo}) {
    LOGIN
 ═══════════════════════════════════════════════════════ */
 function Login({onLogin}) {
-  const [email,setEmail]=useState("admin@reopt.com");
-  const [pass,setPass]=useState("demo");
-  const [err,setErr]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [recovery,setRecovery]=useState(false);
-  const [sent,setSent]=useState(false);
+  // mode: "broker" (email+password) | "otp_request" | "otp_verify"
+  const [mode, setMode] = useState("broker");
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [otp, setOtp] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [recovery, setRecovery] = useState(false);
+  const [sent, setSent] = useState(false);
 
-  const submit=()=>{
+  /* ── Broker login ── */
+  const submitBroker = async () => {
+    if (!email || !pass) { setErr("Please enter your email and password."); return; }
     setLoading(true); setErr("");
-    setTimeout(()=>{
-      const u=USERS.find(u=>u.email===email&&u.pass===pass);
-      if(u)onLogin(u); else{setErr("Invalid email or password.");setLoading(false);}
-    },700);
+    try {
+      const { user, user_type, attendee } = await loginBroker(email, pass);
+      onLogin(normalizeUser(user, user_type, attendee));
+    } catch(e) {
+      setErr(e.message || "Invalid email or password.");
+    } finally { setLoading(false); }
+  };
+
+  /* ── OTP step 1: request OTP ── */
+  const submitOtpRequest = async () => {
+    if (!email) { setErr("Please enter your email."); return; }
+    setLoading(true); setErr("");
+    try {
+      await requestOtp(email);
+      setMode("otp_verify");
+    } catch(e) {
+      setErr(e.message || "Failed to send OTP. Check your email address.");
+    } finally { setLoading(false); }
+  };
+
+  /* ── OTP step 2: verify OTP ── */
+  const submitOtpVerify = async () => {
+    if (!otp) { setErr("Please enter the code from your email."); return; }
+    setLoading(true); setErr("");
+    try {
+      const { user, user_type, attendee } = await verifyOtp(email, otp);
+      onLogin(normalizeUser(user, user_type, attendee));
+    } catch(e) {
+      setErr(e.message || "Invalid or expired code. Please try again.");
+    } finally { setLoading(false); }
   };
 
   if(recovery) return (
@@ -650,6 +687,61 @@ function Login({onLogin}) {
     </div>
   );
 
+  /* ── OTP verify screen ── */
+  if (mode === "otp_verify") return (
+    <div style={{flex:1, display:"flex", flexDirection:"column", padding:"0 24px 24px", background:"#000", overflowY:"auto"}}>
+      <div style={{textAlign:"center", padding:"40px 0 32px"}}>
+        <div style={{width:64,height:64,borderRadius:16,background:`${iOS.blue}22`,
+          display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+          <Icon name="mail" size={30} color={iOS.blue}/>
+        </div>
+        <div style={{...T.title2, marginBottom:6}}>Check Your Email</div>
+        <div style={{...T.footnote, color:iOS.label2}}>We sent a sign-in code to <span style={{color:iOS.label}}>{email}</span></div>
+      </div>
+      <div style={{display:"flex", flexDirection:"column", gap:14}}>
+        <Field label="One-Time Code" value={otp} onChange={setOtp} type="text"
+          placeholder="000000" maxLength={8}/>
+        {err && <div style={{background:`${iOS.red}18`, borderRadius:10, padding:"10px 14px",
+          ...T.footnote, color:iOS.red}}>{err}</div>}
+        <IOSBtn onPress={submitOtpVerify} full disabled={loading}>
+          {loading ? "Verifying…" : "Verify Code"}
+        </IOSBtn>
+        <IOSBtn variant="plain" onPress={()=>{setMode("otp_request");setOtp("");setErr("");}}>
+          ‹ Resend Code
+        </IOSBtn>
+        <IOSBtn variant="plain" onPress={()=>{setMode("broker");setErr("");}}>
+          ‹ Back to Sign In
+        </IOSBtn>
+      </div>
+    </div>
+  );
+
+  /* ── OTP request screen ── */
+  if (mode === "otp_request") return (
+    <div style={{flex:1, display:"flex", flexDirection:"column", padding:"0 24px 24px", background:"#000", overflowY:"auto"}}>
+      <div style={{textAlign:"center", padding:"40px 0 32px"}}>
+        <div style={{width:64,height:64,borderRadius:16,background:`${iOS.orange}22`,
+          display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+          <Icon name="person" size={30} color={iOS.orange}/>
+        </div>
+        <div style={{...T.title2, marginBottom:6}}>Attendee Sign In</div>
+        <div style={{...T.footnote, color:iOS.label2}}>Enter your email to receive a sign-in code</div>
+      </div>
+      <div style={{display:"flex", flexDirection:"column", gap:14}}>
+        <Field label="Email" value={email} onChange={setEmail} type="email" placeholder="your@email.com"/>
+        {err && <div style={{background:`${iOS.red}18`, borderRadius:10, padding:"10px 14px",
+          ...T.footnote, color:iOS.red}}>{err}</div>}
+        <IOSBtn onPress={submitOtpRequest} full disabled={loading} color={iOS.orange}>
+          {loading ? "Sending…" : "Send Sign-In Code"}
+        </IOSBtn>
+        <IOSBtn variant="plain" onPress={()=>{setMode("broker");setErr("");}}>
+          ‹ Back to Sign In
+        </IOSBtn>
+      </div>
+    </div>
+  );
+
+  /* ── Default: Broker email+password ── */
   return (
     <div style={{flex:1, display:"flex", flexDirection:"column", padding:"0 24px 24px", background:"#000", overflowY:"auto"}}>
       <div style={{textAlign:"center", padding:"40px 0 32px"}}>
@@ -667,8 +759,8 @@ function Login({onLogin}) {
         <Field label="Password" value={pass} onChange={setPass} type="password" placeholder="••••••••"/>
         {err && <div style={{background:`${iOS.red}18`, borderRadius:10, padding:"10px 14px",
           ...T.footnote, color:iOS.red}}>{err}</div>}
-        <IOSBtn onPress={submit} full disabled={loading}>
-          {loading?"Signing in…":"Sign In"}
+        <IOSBtn onPress={submitBroker} full disabled={loading}>
+          {loading ? "Signing in…" : "Sign In"}
         </IOSBtn>
         <button onClick={()=>setRecovery(true)} style={{background:"none", border:"none",
           color:iOS.blue, fontSize:16, cursor:"pointer", padding:"8px 0", textAlign:"center"}}>
@@ -676,17 +768,18 @@ function Login({onLogin}) {
         </button>
       </div>
 
-      {/* Demo accounts */}
+      {/* Attendee / OTP sign-in */}
       <div style={{marginTop:28}}>
         <div style={{...T.footnote, textTransform:"uppercase", letterSpacing:".05em",
-          color:iOS.label2, padding:"0 4px 8px"}}>Demo Accounts — Tap to Fill</div>
+          color:iOS.label2, padding:"0 4px 8px"}}>Tour Attendee?</div>
         <div style={{borderRadius:12, overflow:"hidden"}}>
-          {USERS.map((u,i)=>(
-            <ListRow key={u.id} title={u.email} subtitle={`Role: ${u.role}`}
-              right={<Badge label={u.role} color={u.role==="guest"?iOS.orange:iOS.teal}/>}
-              onPress={()=>{setEmail(u.email);setPass(u.pass);}}
-              showChevron={false} last={i===USERS.length-1}/>
-          ))}
+          <ListRow
+            left={<IconBox name="person" color={iOS.orange}/>}
+            title="Sign in with Email Code"
+            subtitle="For attendees with a tour invitation"
+            onPress={()=>{setMode("otp_request");setErr("");}}
+            last
+          />
         </div>
       </div>
     </div>
@@ -1913,25 +2006,59 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
     }
   }));
 
-  /* ── Mock sync ── */
-  const doSync=()=>{
+  /* ── API Sync: submit all pending scores for current tour ── */
+  const doSync = async () => {
+    if (!activeTour) return;
     setSyncing(true);
-    const payload={
-      syncedAt:new Date().toISOString(),
-      tours:tours.map(t=>({
-        id:t.id, name:t.name,
-        scores:scores[t.id]??{},
-        notes:notes[t.id]??{},
-        media:Object.fromEntries(
-          Object.entries(media[t.id]??{}).map(([compId,items])=>[
-            compId,
-            items.map(({id,type,name,size})=>({id,type,name,size}))
-          ])
-        ),
-      })),
-    };
-    console.log("[REopt] Sync payload:",payload);
-    setTimeout(()=>{setSyncing(false);toast("Synced to web ✓");},2000);
+    const tour = tours.find(t => t.id === activeTour);
+    if (!tour) { setSyncing(false); return; }
+
+    const tourApiId = tour._apiId || tour.id;
+    const tComps = comps.filter(c => tour.comps.includes(c.id));
+    const errors = [];
+
+    // For attendees: submit per-comp scores using the real API
+    if (user.user_type === "attendee" && user.attendee?.can_score) {
+      const attendeeId = String(user.attendee.id ?? user.id);
+      for (const comp of tComps) {
+        const compApiId = comp._apiId || comp.id;
+        const myScores = scores[activeTour]?.[attendeeId]?.[comp.id];
+        if (!myScores) continue;
+
+        // Convert KSD key→score map to API format [{ ksd_id, score }]
+        // The KSD objects in our local array use string ids like "ch","pc" etc.
+        // The API expects integer ksd_id — we'll pass the index+1 as a fallback
+        // if no real ksd_id is stored on the KSD object.
+        const ksdScores = KSD.map((k, idx) => ({
+          ksd_id: k._apiId ?? (idx + 1),
+          score: myScores[k.id] ?? 0,
+        }));
+
+        const noteText = notes[activeTour]?.[comp.id] ?? "";
+        try {
+          await submitCompScores(tourApiId, compApiId, ksdScores, noteText);
+        } catch (e) {
+          console.warn(`[REopt] Score submit failed for comp ${compApiId}:`, e.message);
+          errors.push(comp.name);
+        }
+      }
+    } else {
+      // Broker / non-scoring user: just log the payload locally
+      const payload = {
+        syncedAt: new Date().toISOString(),
+        tourId: tourApiId,
+        scores: scores[activeTour] ?? {},
+        notes: notes[activeTour] ?? {},
+      };
+      console.log("[REopt] Sync payload:", payload);
+    }
+
+    setSyncing(false);
+    if (errors.length > 0) {
+      toast(`Synced with errors: ${errors.join(", ")}`);
+    } else {
+      toast("Synced to web ✓");
+    }
   };
 
   const setScore=(tid,cid,cmpId,kid,val)=>{
@@ -2772,7 +2899,57 @@ function AppShell({user, onLogout, device}) {
   const [comps, setComps] = useState(COMPS_SEED);
   const [tours, setTours] = useState(TOURS_SEED);
   const [tasks, setTasks] = useState(TASKS_SEED);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
   const toast = useCallback(msg=>setToastMsg(msg), []);
+
+  /* ── Fetch live data from API on mount ── */
+  useEffect(() => {
+    const token = user.token || getToken();
+    if (!token) return; // No token → keep seed data
+    setApiLoading(true);
+    setApiError("");
+
+    const fetchAll = async () => {
+      try {
+        // Run all fetches concurrently for speed
+        const [rawSites, rawProjects, rawComps, rawTours] = await Promise.allSettled([
+          getSites(),
+          getProjects(),
+          getComps(),
+          getTours(),
+        ]);
+
+        if (rawSites.status === "fulfilled" && rawSites.value.length > 0) {
+          setSites(rawSites.value.map(normalizeSite));
+        }
+        if (rawProjects.status === "fulfilled" && rawProjects.value.length > 0) {
+          setProjects(rawProjects.value.map(normalizeProject));
+        }
+        if (rawComps.status === "fulfilled" && rawComps.value.length > 0) {
+          setComps(rawComps.value.map(normalizeComp));
+        }
+        if (rawTours.status === "fulfilled" && rawTours.value.length > 0) {
+          setTours(rawTours.value.map(normalizeTour));
+        }
+
+        // Report any partial failures quietly
+        const failed = [rawSites, rawProjects, rawComps, rawTours]
+          .filter(r => r.status === "rejected")
+          .map(r => r.reason?.message);
+        if (failed.length > 0) {
+          console.warn("[REopt] Some API fetches failed:", failed);
+        }
+      } catch (err) {
+        console.error("[REopt] API load error:", err);
+        setApiError("Could not load live data. Showing cached data.");
+      } finally {
+        setApiLoading(false);
+      }
+    };
+
+    fetchAll();
+  }, [user.token]); // re-run if token changes
 
   const screens = {
     dashboard: <Dashboard user={user} setTab={setTab} sites={sites} projects={projects} tours={tours} comps={comps}/>,
@@ -2784,6 +2961,26 @@ function AppShell({user, onLogout, device}) {
   return (
     <>
       <StatusBar device={device}/>
+      {/* API loading banner */}
+      {apiLoading && (
+        <div style={{
+          background:iOS.bg2, padding:"6px 16px", display:"flex",
+          alignItems:"center", gap:8, borderBottom:`0.5px solid ${iOS.separator}`,
+          flexShrink:0,
+        }}>
+          <div style={{width:12, height:12, borderRadius:"50%", border:`2px solid ${iOS.blue}`,
+            borderTopColor:"transparent", animation:"spin .8s linear infinite"}}/>
+          <span style={{...T.caption, color:iOS.label2}}>Loading live data…</span>
+        </div>
+      )}
+      {apiError && (
+        <div style={{
+          background:`${iOS.orange}18`, padding:"6px 16px",
+          borderBottom:`0.5px solid ${iOS.separator}`, flexShrink:0,
+        }}>
+          <span style={{...T.caption, color:iOS.orange}}>{apiError}</span>
+        </div>
+      )}
       <div style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative"}}>
         {screens[tab]}
         {toastMsg && <Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>}
@@ -2807,8 +3004,34 @@ export default function App() {
     window.addEventListener("resize",h); return()=>window.removeEventListener("resize",h);
   },[]);
 
-  const login  = u => { setUser(u); setPhase("app"); };
-  const logout = () => { setUser(null); setPhase("login"); };
+  /* ── Restore session from localStorage on mount ── */
+  useEffect(() => {
+    const savedToken = localStorage.getItem("reopt_token");
+    const savedUser  = localStorage.getItem("reopt_user");
+    if (savedToken && savedUser) {
+      try {
+        const parsedUser = JSON.parse(savedUser);
+        setUser({ ...parsedUser, token: savedToken });
+        // Skip splash — go straight to app
+        setPhase("app");
+      } catch { /* corrupt data — start fresh */ }
+    }
+  }, []);
+
+  const login  = u => {
+    setUser(u);
+    setPhase("app");
+    // Persist session
+    try {
+      localStorage.setItem("reopt_user", JSON.stringify(u));
+    } catch { /* storage full or private mode */ }
+  };
+  const logout = async () => {
+    try { await apiLogout(); } catch { /* ignore – token already cleared by apiLogout */ }
+    localStorage.removeItem("reopt_user");
+    setUser(null);
+    setPhase("login");
+  };
 
   const d = DEVICES[device];
 
