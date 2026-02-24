@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
-  getSites, getProjects, getComps, getTours,
+  getSites, getProjects, getComps, getTours, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
-  normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser,
+  normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
 } from "./api.js";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -789,24 +789,55 @@ function Login({onLogin}) {
 /* ═══════════════════════════════════════════════════════
    DASHBOARD
 ═══════════════════════════════════════════════════════ */
-function Dashboard({user, setTab, sites, projects, tours, comps}) {
-  const stats=[
-    {label:"Sites",    val:sites.length,    icon:"building", color:iOS.teal  },
-    {label:"Projects", val:projects.length, icon:"folder",   color:iOS.blue  },
-    {label:"Tours",    val:tours.length,    icon:"map",      color:iOS.orange},
-    {label:"Comps",    val:comps.length,    icon:"chart",    color:iOS.indigo},
+function Dashboard({user, setTab, sites, projects, tours, comps, dashData}) {
+  // Use live API stats when available, fall back to local array lengths
+  const statsData = dashData?.stats;
+  const stats = [
+    { label:"Sites",          val: statsData?.totalSites    ?? sites.length,    icon:"building", color:iOS.teal   },
+    { label:"Projects",       val: statsData?.activeProjects ?? projects.length, icon:"folder",   color:iOS.blue   },
+    { label:"Upcoming Tours", val: statsData?.upcomingTours  ?? tours.length,    icon:"map",      color:iOS.orange },
+    { label:"Comps",          val: comps.length,                                 icon:"chart",    color:iOS.indigo },
   ];
+
+  // Use dashboard's recent_tours list if available; fall back to normalized tours
+  const recentTours = dashData?.recentTours?.length ? dashData.recentTours : tours.slice(0, 3).map(t => ({
+    id: t.id,
+    name: t.name,
+    date: t.date,
+    status: t.status,
+    projectName: t.projectName || "",
+    compsCount: t.compsCount || t.comps?.length || 0,
+  }));
+
+  // Use dashboard's active_projects if available; fall back to normalized projects
+  const activeProjects = dashData?.activeProjects?.length ? dashData.activeProjects : projects.slice(0, 5).map(p => ({
+    id: p.id,
+    name: p.name,
+    status: p.stage,
+    sitesCount: p.sitesCount || 0,
+    compsCount: p.compsCount || 0,
+  }));
+
+  // Recent sites from dashboard or fallback
+  const recentSites = dashData?.sites?.length ? dashData.sites : sites.slice(0, 5).map(s => ({
+    id: s.id,
+    name: s.name,
+    addr: s.addr,
+  }));
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
   return (
     <div style={{flex:1, overflowY:"auto", background:"#000"}}>
       <NavBar title="Dashboard" large
-        rightItem={
-          <Avatar init={user.av} size={32} color={iOS.blue}/>
-        }/>
+        rightItem={<Avatar init={user.av} size={32} color={iOS.blue}/>}/>
       <div style={{padding:"0 14px 20px"}}>
+
         {/* Greeting */}
         <div style={{padding:"12px 0 16px"}}>
           <div style={{...T.title3, color:iOS.label2, marginBottom:4}}>
-            Good morning, {user.name.split(" ")[0]}
+            {greeting}, {(user.name || "").split(" ")[0]}
           </div>
           <div style={{...T.footnote, color:iOS.label3}}>Your portfolio at a glance</div>
         </div>
@@ -829,41 +860,54 @@ function Dashboard({user, setTab, sites, projects, tours, comps}) {
           ))}
         </div>
 
-        {/* Sites */}
-        <Section header="Recent Sites">
-          {sites.slice(0,3).map((s,i)=>(
-            <ListRow key={s.id}
-              left={<IconBox name="building" color={iOS.teal}/>}
-              title={s.name} subtitle={`${s.sqft.toLocaleString()} sqft · ${s.type}`}
-              right={<Badge label={s.status} color={s.status==="Active"?iOS.green:iOS.orange}/>}
-              onPress={()=>setTab("sites")} last={i===sites.length-1}/>
-          ))}
-        </Section>
+        {/* Recent Sites */}
+        {recentSites.length > 0 && (
+          <Section header="Recent Sites">
+            {recentSites.map((s, i) => (
+              <ListRow key={s.id}
+                left={<IconBox name="building" color={iOS.teal}/>}
+                title={s.name || s.addr}
+                subtitle={s.addr !== s.name ? s.addr : ""}
+                onPress={() => setTab("sites")}
+                last={i === recentSites.length - 1}/>
+            ))}
+          </Section>
+        )}
 
-        {/* Projects */}
-        <Section header="Active Projects">
-          {projects.map((p,i)=>{
-            const site=sites.find(s=>s.id===p.siteId);
-            return <ListRow key={p.id}
-              left={<IconBox name="folder" color={iOS.blue}/>}
-              title={p.name} subtitle={site?.name}
-              right={<Badge label={p.stage} color={STAGE_COLOR[p.stage]??iOS.label3}/>}
-              onPress={()=>setTab("projects")} last={i===projects.length-1}/>;
-          })}
-        </Section>
+        {/* Active Projects */}
+        {activeProjects.length > 0 && (
+          <Section header="Active Projects">
+            {activeProjects.map((p, i) => (
+              <ListRow key={p.id}
+                left={<IconBox name="folder" color={iOS.blue}/>}
+                title={p.name}
+                subtitle={`${p.compsCount} comp${p.compsCount !== 1 ? "s" : ""}`}
+                right={<Badge label={p.status} color={STAGE_COLOR[p.status] ?? iOS.blue}/>}
+                onPress={() => setTab("projects")}
+                last={i === activeProjects.length - 1}/>
+            ))}
+          </Section>
+        )}
 
-        {/* Tours */}
-        <Section header="Upcoming Tours">
-          {tours.map((t,i)=>{
-            const proj=projects.find(p=>p.id===t.pid);
-            const isLive=t.status==="In Progress";
-            return <ListRow key={t.id}
-              left={<IconBox name="map" color={isLive?iOS.orange:iOS.blue}/>}
-              title={t.name} subtitle={`${proj?.name} · ${t.date}`}
-              right={<Badge label={t.status} color={isLive?iOS.orange:iOS.blue}/>}
-              onPress={()=>setTab("tours")} last={i===tours.length-1}/>;
-          })}
-        </Section>
+        {/* Upcoming Tours */}
+        {recentTours.length > 0 && (
+          <Section header="Upcoming Tours">
+            {recentTours.map((t, i) => {
+              const statusColor = t.status === "In Progress" || t.status === "active"
+                ? iOS.orange
+                : t.status === "draft" ? iOS.label3 : iOS.blue;
+              return (
+                <ListRow key={t.id}
+                  left={<IconBox name="map" color={statusColor}/>}
+                  title={t.name}
+                  subtitle={[t.projectName, t.date].filter(Boolean).join(" · ")}
+                  right={<Badge label={t.status} color={statusColor}/>}
+                  onPress={() => setTab("tours")}
+                  last={i === recentTours.length - 1}/>
+              );
+            })}
+          </Section>
+        )}
       </div>
     </div>
   );
@@ -1303,53 +1347,46 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
             <div>
               <Section header="Overview">
                 {[
-                  {l:"Square Footage", v:site.sqft.toLocaleString()+" sqft"},
-                  {l:"Clear Height",   v:site.ch+"'"},
-                  {l:"Tenure",         v:site.type},
-                  {l:"Last Visit",     v:site.last},
-                  {l:"Status",         v:site.status},
-                ].map((d,i,arr)=>(
+                  site.sqft   ? {l:"Square Footage", v:Number(site.sqft).toLocaleString()+" sqft"} : null,
+                  site.type   ? {l:"Building Type",  v:site.type}                                   : null,
+                  site.yearBuilt ? {l:"Year Built",  v:site.yearBuilt}                              : null,
+                  site.status ? {l:"Status",         v:site.status}                                 : null,
+                  site.last   ? {l:"Last Updated",   v:site.last}                                   : null,
+                ].filter(Boolean).map((d,i,arr)=>(
                   <ListRow key={d.l} title={d.l}
                     right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
-                    showChevron={false} last={i===arr.length-1}/>
-                ))}
-              </Section>
-              <Section header="Specifications">
-                {[
-                  {icon:"door",      label:"Dock Doors",       val:"24"},
-                  {icon:"car",       label:"Drive-In Doors",    val:"4"},
-                  {icon:"fire",      label:"Fire Suppression",  val:"ESFR"},
-                  {icon:"bolt",      label:"Power",              val:"2,000A / 480V 3-Phase"},
-                  {icon:"building",  label:"Office Area",        val:"4,200 sqft"},
-                  {icon:"truck",     label:"Truck Court",        val:"185 ft"},
-                  {icon:"grid",      label:"Column Spacing",     val:"52' × 50'"},
-                  {icon:"lift",      label:"Sprinkler System",  val:"ESFR K-25"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.label}
-                    left={<div style={{width:32,height:32,borderRadius:8,background:iOS.bg3,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <Icon name={d.icon} size={16} color={iOS.label2}/>
-                    </div>}
-                    title={d.label}
-                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
               <Section header="Address">
-                <ListRow title={site.addr} showChevron={false} last/>
+                <ListRow title={site.addr||"—"} showChevron={false} last/>
               </Section>
-              <Section header="Zoning & Compliance">
-                {[
-                  {l:"Zoning",          v:"M-2 Heavy Industrial"},
-                  {l:"ADA Compliant",   v:"Yes"},
-                  {l:"LEED Certified",  v:"Silver"},
-                  {l:"Year Built",      v:"2008"},
-                  {l:"Last Inspected",  v:"Oct 2024"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.l} title={d.l}
-                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
-                    showChevron={false} last={i===arr.length-1}/>
-                ))}
-              </Section>
+              {/* Contacts from API */}
+              {site.contacts && site.contacts.length > 0 && (
+                <Section header="Contacts">
+                  {site.contacts.map((c,i,arr)=>(
+                    <ListRow key={c.id}
+                      left={<Avatar init={(c.name||"?").split(" ").map(n=>n[0]).join("")} size={36} color={iOS.teal}/>}
+                      title={c.name||"—"}
+                      subtitle={[c.phone, c.email].filter(Boolean).join(" · ")}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+              {/* Unit / lease counts from API */}
+              {(site.unitsCount > 0 || site.leasesCount > 0) && (
+                <Section header="Summary">
+                  {[
+                    site.unitsCount   ? {l:"Units",    v:site.unitsCount}   : null,
+                    site.leasesCount  ? {l:"Leases",   v:site.leasesCount}  : null,
+                    site.expensesCount? {l:"Expenses", v:site.expensesCount}: null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
             </div>
           )}
 
@@ -1528,8 +1565,13 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
           {sites.map((s,i)=>(
             <ListRow key={s.id}
               left={<IconBox name="building" color={iOS.teal} boxSize={40} radius={12}/>}
-              title={s.name} subtitle={`${s.sqft.toLocaleString()} sqft · ${s.type} · ${s.ch}' clear`}
-              right={<Badge label={s.status} color={s.status==="Active"?iOS.green:iOS.orange}/>}
+              title={s.name}
+              subtitle={[
+                s.sqft ? `${Number(s.sqft).toLocaleString()} sqft` : null,
+                s.type,
+                s.yearBuilt ? `Built ${s.yearBuilt}` : null,
+              ].filter(Boolean).join(" · ")}
+              right={<Badge label={s.status||"Active"} color={s.status==="Active"||!s.status?iOS.green:iOS.orange}/>}
               onPress={()=>setSel(s.id)} last={i===sites.length-1}/>
           ))}
         </Section>
@@ -1619,7 +1661,12 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
               <ListRow key={c.id}
                 left={<span style={{width:28,height:28,borderRadius:8,background:i===0?iOS.green:iOS.blue,
                   color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{i+1}</span>}
-                title={c.name} subtitle={`$${c.rent}/sqft · ${c.sqft.toLocaleString()} sqft`}
+                title={c.name}
+                subtitle={[
+                  c.addr,
+                  c.buildingType,
+                  c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
+                ].filter(Boolean).join(" · ")}
                 right={<ScoreChip score={c.score}/>} showChevron={false} last={i===scored.length-1}/>
             ))}
           </Section>
@@ -1745,12 +1792,18 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
       <div style={{flex:1,overflowY:"auto",padding:"0 14px 20px"}}>
         <Section>
           {projects.map((p,i)=>{
-            const site=sites.find(s=>s.id===p.siteId);
-            const pc=comps.filter(c=>p.comps.includes(c.id));
+            // compsCount from API (list endpoint) or count from comps array
+            const compCount = p.compsCount ?? comps.filter(c=>p.comps.includes(c.id)).length;
+            const subtitle = [
+              p.projectType,
+              `${compCount} comp${compCount!==1?"s":""}`,
+            ].filter(Boolean).join(" · ");
+            const stageColor = STAGE_COLOR[p.stage] ?? iOS.blue;
             return <ListRow key={p.id}
               left={<IconBox name="folder" color={iOS.blue} boxSize={40} radius={12}/>}
-              title={p.name} subtitle={`${site?.name??""} · ${pc.length} comps`}
-              right={<Badge label={p.stage} color={STAGE_COLOR[p.stage]??iOS.label3}/>}
+              title={p.name}
+              subtitle={subtitle}
+              right={<Badge label={p.stage} color={stageColor}/>}
               onPress={()=>setSel(p.id)} last={i===projects.length-1}/>;
           })}
         </Section>
@@ -2093,7 +2146,9 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
     const live=calcIPS(myS);
     const col=live>=7.5?iOS.green:live>=5?iOS.orange:iOS.red;
     const compMedia=getMedia(tour.id,comp.id);
-    const apptTime=tour.times?.[comp.id];
+    // times keyed by building ID (real API) or comp ID (seed fallback)
+    const apptTime = tour.times?.[String(comp._apiId ?? comp.id)]
+                  || tour.times?.[comp.id];
 
     const handleQuickPhoto=e=>{
       const files=Array.from(e.target.files);
@@ -2405,7 +2460,37 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
 
   /* ── Tour detail ── */
   if(tour){
-    const tComps=comps.filter(c=>tour.comps.includes(c.id));
+    // Build tComps from the tour's schedule comp slots (real API data)
+    // then augment with matching comp records from global comps state if found.
+    // tour.schedule = allSlots with slotType, building data
+    // tour.comps = building IDs (strings) from comp-type schedule slots
+    const scheduleCompSlots = (tour.schedule || []).filter(s => s.slotType === "comp" && s.building);
+
+    // Try to find matching comp records by building ID
+    const tComps = scheduleCompSlots.length > 0
+      ? scheduleCompSlots.map(slot => {
+          // Find a comp whose building matches this slot's building
+          const matched = comps.find(c =>
+            String(c._raw?.building?.id) === String(slot.building.id)
+          );
+          if (matched) return matched;
+          // Fallback: create a minimal comp-like object from the schedule slot
+          return {
+            id: slot.building.id,              // use building ID as comp ID
+            _apiId: slot.building.id,
+            name: slot.building.name || slot.building.addr || `Building ${slot.building.id}`,
+            addr: slot.building.addr || "",
+            lat: slot.building.lat,
+            lng: slot.building.lng,
+            sqft: 0,
+            rent: 0,
+            buildingType: "",
+            scores: { ch:0, pc:0, hp:0, la:0, ur:0, tr:0 },
+            score: 0,
+            _fromSchedule: true,
+          };
+        })
+      : comps.filter(c => tour.comps.includes(c.id));  // legacy seed-data fallback
     const barData=tComps.map(c=>({name:c.name,avg:parseFloat(getAvg(tour.id,c.id).toFixed(2))})).sort((a,b)=>b.avg-a.avg);
     const radarColors=[iOS.green,iOS.blue,iOS.orange];
     const radarData=KSD.map(k=>{
@@ -2448,7 +2533,10 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                       width="100%"
                       height="260"
                       style={{display:"block",border:"none"}}
-                      src={`https://www.google.com/maps?q=${encodeURIComponent(tComps.map(c=>c.addr).join(" | "))}&output=embed`}
+                      src={`https://www.google.com/maps?q=${encodeURIComponent(tComps.map(c=>{
+                        if(c.lat&&c.lng) return `${c.lat},${c.lng}`;
+                        return c.addr||c.name;
+                      }).join(" | "))}&output=embed`}
                       allowFullScreen
                       loading="lazy"
                       referrerPolicy="no-referrer-when-downgrade"
@@ -2474,7 +2562,8 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                           <button className="pressable"
                             onClick={e=>{
                               e.stopPropagation();
-                              window.open(`https://maps.google.com/?q=${encodeURIComponent(c.addr)}`,"_blank");
+                              const q = (c.lat&&c.lng) ? `${c.lat},${c.lng}` : (c.addr||c.name);
+                              window.open(`https://maps.google.com/?q=${encodeURIComponent(q)}`,"_blank");
                             }}
                             style={{
                               background:`${iOS.blue}22`,border:"none",borderRadius:8,
@@ -2510,7 +2599,8 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                 ? <Section><ListRow title="No properties assigned" showChevron={false} last/></Section>
                 : tComps.map((c,i)=>{
                     const avg=getAvg(tour.id,c.id);
-                    const apptTime=tour.times?.[c.id];
+                    // times keyed by building ID (API) or comp ID (seed fallback)
+                    const apptTime=tour.times?.[String(c._apiId??c.id)]||tour.times?.[c.id];
                     const colors=[iOS.green,iOS.blue,iOS.orange,iOS.indigo,iOS.teal];
                     const numColor=colors[i]??iOS.label3;
                     const isLast=i===tComps.length-1;
@@ -2555,9 +2645,9 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                                 whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
                                 {c.addr}
                               </div>
-                              <div style={{display:"flex", gap:6, marginTop:6}}>
-                                <Badge label={`${c.sqft.toLocaleString()} sqft`} color={iOS.blue}/>
-                                <Badge label={`$${c.rent}/sqft`} color={iOS.orange}/>
+                              <div style={{display:"flex", gap:6, marginTop:6, flexWrap:"wrap"}}>
+                                {c.sqft ? <Badge label={`${Number(c.sqft).toLocaleString()} sqft`} color={iOS.blue}/> : null}
+                                {c.buildingType ? <Badge label={c.buildingType} color={iOS.indigo}/> : null}
                               </div>
                             </div>
                             {/* Score or CTA */}
@@ -2750,12 +2840,16 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
       <div style={{flex:1,overflowY:"auto",padding:"0 14px 20px"}}>
         <Section>
           {tours.map((t,i)=>{
-            const proj=projects.find(p=>p.id===t.pid);
-            const isLive=t.status==="In Progress";
+            // Use projectName from API; fall back to looking up in projects array
+            const projName = t.projectName || projects.find(p=>p.id===t.pid)?.name || "";
+            const statusColor = t.status==="In Progress"||t.status==="active" ? iOS.orange
+              : t.status==="draft" ? iOS.label3 : iOS.blue;
+            const compCount = t.compsCount || t.comps?.length || 0;
             return <ListRow key={t.id}
-              left={<IconBox name="map" color={isLive?iOS.orange:iOS.blue} boxSize={40} radius={12}/>}
-              title={t.name} subtitle={`${proj?.name} · ${t.date}`}
-              right={<Badge label={t.status} color={isLive?iOS.orange:iOS.blue}/>}
+              left={<IconBox name="map" color={statusColor} boxSize={40} radius={12}/>}
+              title={t.name}
+              subtitle={[projName, t.date, compCount ? `${compCount} stops` : null].filter(Boolean).join(" · ")}
+              right={<Badge label={t.status} color={statusColor}/>}
               onPress={()=>setActiveTour(t.id)} last={i===tours.length-1}/>;
           })}
         </Section>
@@ -2894,11 +2988,12 @@ function DeviceFrame({device, children}) {
 function AppShell({user, onLogout, device}) {
   const [tab, setTab] = useState(user.role==="guest"?"tours":"dashboard");
   const [toastMsg, setToastMsg] = useState("");
-  const [sites, setSites] = useState(SITES_SEED);
-  const [projects, setProjects] = useState(PROJECTS_SEED);
-  const [comps, setComps] = useState(COMPS_SEED);
-  const [tours, setTours] = useState(TOURS_SEED);
+  const [sites, setSites] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [comps, setComps] = useState([]);
+  const [tours, setTours] = useState([]);
   const [tasks, setTasks] = useState(TASKS_SEED);
+  const [dashData, setDashData] = useState(null);
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState("");
   const toast = useCallback(msg=>setToastMsg(msg), []);
@@ -2906,18 +3001,19 @@ function AppShell({user, onLogout, device}) {
   /* ── Fetch live data from API on mount ── */
   useEffect(() => {
     const token = user.token || getToken();
-    if (!token) return; // No token → keep seed data
+    if (!token) return;
     setApiLoading(true);
     setApiError("");
 
     const fetchAll = async () => {
       try {
         // Run all fetches concurrently for speed
-        const [rawSites, rawProjects, rawComps, rawTours] = await Promise.allSettled([
+        const [rawSites, rawProjects, rawComps, rawTours, rawDash] = await Promise.allSettled([
           getSites(),
           getProjects(),
           getComps(),
           getTours(),
+          getDashboard(),
         ]);
 
         if (rawSites.status === "fulfilled" && rawSites.value.length > 0) {
@@ -2932,9 +3028,12 @@ function AppShell({user, onLogout, device}) {
         if (rawTours.status === "fulfilled" && rawTours.value.length > 0) {
           setTours(rawTours.value.map(normalizeTour));
         }
+        if (rawDash.status === "fulfilled" && rawDash.value) {
+          setDashData(normalizeDashboard(rawDash.value));
+        }
 
         // Report any partial failures quietly
-        const failed = [rawSites, rawProjects, rawComps, rawTours]
+        const failed = [rawSites, rawProjects, rawComps, rawTours, rawDash]
           .filter(r => r.status === "rejected")
           .map(r => r.reason?.message);
         if (failed.length > 0) {
@@ -2942,7 +3041,7 @@ function AppShell({user, onLogout, device}) {
         }
       } catch (err) {
         console.error("[REopt] API load error:", err);
-        setApiError("Could not load live data. Showing cached data.");
+        setApiError("Could not load live data.");
       } finally {
         setApiLoading(false);
       }
@@ -2952,7 +3051,7 @@ function AppShell({user, onLogout, device}) {
   }, [user.token]); // re-run if token changes
 
   const screens = {
-    dashboard: <Dashboard user={user} setTab={setTab} sites={sites} projects={projects} tours={tours} comps={comps}/>,
+    dashboard: <Dashboard user={user} setTab={setTab} sites={sites} projects={projects} tours={tours} comps={comps} dashData={dashData}/>,
     sites:     <Sites sites={sites} setSites={setSites} tasks={tasks} setTasks={setTasks} sites_all={sites} projects_all={projects} toast={toast}/>,
     projects:  <Projects projects={projects} setProjects={setProjects} sites={sites} comps={comps} setComps={setComps} tasks={tasks} setTasks={setTasks} sites_all={sites} toast={toast}/>,
     tours:     <Tours user={user} tours={tours} setTours={setTours} projects={projects} comps={comps} toast={toast}/>,
