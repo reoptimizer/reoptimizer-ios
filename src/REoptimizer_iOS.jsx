@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
-  getSites, getProjects, getComps, getTours, getDashboard,
+  getSites, getProjects, getProject, getComps, getTours, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
   normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
 } from "./api.js";
@@ -1603,6 +1603,26 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
   const [compSheet,setCompSheet]=useState(false);
   const [form,setForm]=useState({name:"",siteId:"",stage:"Initial Outreach"});
   const [cf,setCf]=useState({name:"",addr:"",sqft:"",rent:"",scores:{ch:5,pc:5,hp:5,la:5,ur:5,tr:5}});
+  const [detailLoading,setDetailLoading]=useState(false);
+
+  // When a project is selected, fetch full detail from API
+  useEffect(()=>{
+    if(!sel) return;
+    const p=projects.find(x=>x.id===sel);
+    // If already has detail data (sitesDetail populated), skip fetch
+    if(p && p.sitesDetail && p.sitesDetail.length>0) return;
+    // Also skip if it has no _apiId (locally created)
+    if(!p || !p._apiId) return;
+    setDetailLoading(true);
+    getProject(p._apiId).then(raw=>{
+      const normalized=normalizeProject(raw);
+      setProjects(prev=>prev.map(x=>x.id===sel?{...x,...normalized}:x));
+    }).catch(err=>{
+      console.warn("[REopt] Failed to load project detail:",err);
+    }).finally(()=>{
+      setDetailLoading(false);
+    });
+  },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const proj=projects.find(p=>p.id===sel);
   const pComps=proj?comps.filter(c=>proj.comps.includes(c.id)):[];
@@ -1623,7 +1643,18 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
   };
 
   if(proj){
-    const site=sites.find(s=>s.id===proj.siteId);
+    // Use sitesDetail from the full project detail (populated after getProject() fetch)
+    // Fall back to looking up in global sites list by siteId for locally-created projects
+    const primarySiteDetail = (proj.sitesDetail && proj.sitesDetail.length>0)
+      ? proj.sitesDetail[0]
+      : sites.find(s=>s.id===proj.siteId);
+    const allSiteDetails = (proj.sitesDetail && proj.sitesDetail.length>0)
+      ? proj.sitesDetail
+      : (proj.siteId ? [sites.find(s=>s.id===proj.siteId)].filter(Boolean) : []);
+
+    // Use compsDetail from full project detail when available
+    const compsFromDetail = proj.compsDetail && proj.compsDetail.length>0 ? proj.compsDetail : null;
+
     const scored=pComps.map(c=>({...c,score:calcIPS(c.scores)})).sort((a,b)=>b.score-a.score);
     const barData=KSD.map(k=>({
       subject:k.label,
@@ -1636,10 +1667,36 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
         <NavBar title={proj.name} onBack={()=>setSel(null)} backLabel="Projects"
           rightItem={<Badge label={proj.stage} color={STAGE_COLOR[proj.stage]??iOS.label3}/>}/>
         <div style={{flex:1, overflowY:"auto", padding:"12px 14px 28px"}}>
-          {/* Site */}
-          <Section header="Linked Site">
-            <ListRow left={<IconBox name="building" color={iOS.teal}/>}
-              title={site?.name??"No site"} subtitle={site?.addr} showChevron={false} last/>
+
+          {/* Loading indicator while fetching project detail */}
+          {detailLoading && (
+            <div style={{textAlign:"center",padding:"12px 0 4px",color:iOS.label3,fontSize:13}}>
+              Loading details…
+            </div>
+          )}
+
+          {/* Project meta info */}
+          {(proj.projectType || proj.propertyUsage || proj.description) && (
+            <Section header="Project Info">
+              {proj.projectType ? <ListRow left={<IconBox name="tag" color={iOS.blue}/>}
+                title="Type" subtitle={proj.projectType} showChevron={false} last={!proj.propertyUsage && !proj.description}/> : null}
+              {proj.propertyUsage ? <ListRow left={<IconBox name="briefcase" color={iOS.orange}/>}
+                title="Property Usage" subtitle={proj.propertyUsage} showChevron={false} last={!proj.description}/> : null}
+              {proj.description ? <ListRow left={<IconBox name="doc.text" color={iOS.label3}/>}
+                title="Description" subtitle={proj.description} showChevron={false} last/> : null}
+            </Section>
+          )}
+
+          {/* Site(s) */}
+          <Section header={`Linked Site${allSiteDetails.length>1?"s":""}`}>
+            {allSiteDetails.length===0
+              ? <ListRow left={<IconBox name="building" color={iOS.teal}/>}
+                  title="No site linked" showChevron={false} last/>
+              : allSiteDetails.map((s,i)=>(
+                <ListRow key={s?.id??i} left={<IconBox name="building" color={iOS.teal}/>}
+                  title={s?.name??"—"} subtitle={s?.addr} showChevron={false} last={i===allSiteDetails.length-1}/>
+              ))
+            }
           </Section>
 
           {/* Contacts */}
@@ -1653,23 +1710,33 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
               ))}
           </Section>
 
-          {/* Comps */}
-          <Section header={`Comparables (${pComps.length})`}
-            footer="Ranked by Industrial Profitability Score™">
-            {scored.length===0 && <ListRow title="No comps yet" showChevron={false} last/>}
-            {scored.map((c,i)=>(
-              <ListRow key={c.id}
-                left={<span style={{width:28,height:28,borderRadius:8,background:i===0?iOS.green:iOS.blue,
-                  color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{i+1}</span>}
-                title={c.name}
-                subtitle={[
-                  c.addr,
-                  c.buildingType,
-                  c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
-                ].filter(Boolean).join(" · ")}
-                right={<ScoreChip score={c.score}/>} showChevron={false} last={i===scored.length-1}/>
-            ))}
-          </Section>
+          {/* Comps — prefer scored comps from global list; fall back to compsDetail from project */}
+          {(()=>{
+            const compsToShow = scored.length>0 ? scored
+              : compsFromDetail
+                ? compsFromDetail.map(c=>({...c,score:0,scores:{ch:0,pc:0,hp:0,la:0,ur:0,tr:0}}))
+                : [];
+            const totalCount = compsToShow.length || proj.compsCount || 0;
+            return (
+              <Section header={`Comparables (${totalCount})`}
+                footer="Ranked by Industrial Profitability Score™">
+                {compsToShow.length===0 && !detailLoading && <ListRow title="No comps yet" showChevron={false} last/>}
+                {compsToShow.map((c,i)=>(
+                  <ListRow key={c.id}
+                    left={<span style={{width:28,height:28,borderRadius:8,background:i===0?iOS.green:iOS.blue,
+                      color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{i+1}</span>}
+                    title={c.name}
+                    subtitle={[
+                      c.addr,
+                      c.buildingType,
+                      c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
+                    ].filter(Boolean).join(" · ")}
+                    right={scored.length>0?<ScoreChip score={c.score}/>:null}
+                    showChevron={false} last={i===compsToShow.length-1}/>
+                ))}
+              </Section>
+            );
+          })()}
           <div style={{padding:"0 0 8px"}}>
             <IOSBtn onPress={()=>setCompSheet(true)} variant="tinted" full>+ Add Comparable</IOSBtn>
           </div>
