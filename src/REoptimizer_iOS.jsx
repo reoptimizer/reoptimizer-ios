@@ -3,7 +3,7 @@ import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
   getSites, getSite, getBuilding, getProjects, getProject, getComps, getTours, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
-  normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
+  normalizeSite, normalizeBuilding, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
 } from "./api.js";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -1270,7 +1270,7 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
       if(buildingId){
         try{
           const rawBuilding=await getBuilding(buildingId);
-          setBuildingData(prev=>({...prev,[sel]:rawBuilding}));
+          setBuildingData(prev=>({...prev,[sel]:normalizeBuilding(rawBuilding)}));
         }catch(e){
           console.warn("[REopt] Building fetch failed:",e);
         }
@@ -1383,17 +1383,24 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
           {/* ══ BUILDING INFO ══ */}
           {siteTab==="building" && (
             <div>
+              {/* ── Overview ── */}
               <Section header="Overview">
                 {[
-                  (bldg?.total_square_footage||site.sqft) ? {l:"Square Footage", v:Number(bldg?.total_square_footage||site.sqft).toLocaleString()+" sqft"} : null,
-                  (bldg?.building_type||site.type)        ? {l:"Building Type",  v:bldg?.building_type||site.type}                                          : null,
-                  (bldg?.year_built||site.yearBuilt)      ? {l:"Year Built",     v:bldg?.year_built||site.yearBuilt}                                        : null,
-                  bldg?.number_of_floors                  ? {l:"Floors",         v:bldg.number_of_floors}                                                   : null,
-                  bldg?.parking_ratio                     ? {l:"Parking Ratio",  v:bldg.parking_ratio}                                                      : null,
-                  bldg?.zoning                            ? {l:"Zoning",         v:bldg.zoning}                                                             : null,
-                  bldg?.class                             ? {l:"Class",          v:bldg.class}                                                               : null,
-                  site.status                             ? {l:"Status",         v:site.status}                                                              : null,
-                  site.last                               ? {l:"Last Updated",   v:site.last}                                                                : null,
+                  (bldg?.totalSqft||site.sqft)   ? {l:"Total Sq Ft",         v:Number(bldg?.totalSqft||site.sqft).toLocaleString()+" sqft"} : null,
+                  bldg?.availableSqft!=null && bldg.availableSqft>=0
+                                                  ? {l:"Available Sq Ft",     v:Number(bldg.availableSqft).toLocaleString()+" sqft"}         : null,
+                  bldg?.officeSqft                ? {l:"Office Sq Ft",        v:Number(bldg.officeSqft).toLocaleString()+" sqft"}            : null,
+                  (bldg?.buildingType||site.type) ? {l:"Building Type",       v:bldg?.buildingType||site.type}                              : null,
+                  bldg?.bldgClass                 ? {l:"Class",               v:bldg.bldgClass}                                              : null,
+                  bldg?.leedCert                  ? {l:"LEED Certification",  v:bldg.leedCert}                                              : null,
+                  (bldg?.yearBuilt||site.yearBuilt)? {l:"Year Built",         v:bldg?.yearBuilt||site.yearBuilt}                            : null,
+                  bldg?.yearRenovated             ? {l:"Year Renovated",      v:bldg.yearRenovated}                                          : null,
+                  bldg?.floors                    ? {l:"Floors",              v:bldg.floors}                                                 : null,
+                  bldg?.unitsCount                ? {l:"Units",               v:bldg.unitsCount}                                             : null,
+                  bldg?.avgRent>0                 ? {l:"Avg Rent",            v:`$${bldg.avgRent}/sqft`}                                    : null,
+                  bldg?.region                    ? {l:"Region",              v:bldg.region}                                                 : null,
+                  site.status                     ? {l:"Status",              v:site.status}                                                 : null,
+                  site.last                       ? {l:"Last Updated",        v:site.last}                                                   : null,
                 ].filter(Boolean).map((d,i,arr)=>(
                   <ListRow key={d.l} title={d.l}
                     right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
@@ -1401,39 +1408,115 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
                 ))}
               </Section>
 
-              {/* Building description */}
-              {bldg?.description && (
-                <Section header="Description">
-                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.6}}>
-                    {bldg.description}
-                  </div>
-                </Section>
-              )}
-
+              {/* ── Address ── */}
               <Section header="Address">
                 <ListRow
                   left={<IconBox name="map" color={iOS.blue}/>}
-                  title={site.addr||"—"}
-                  subtitle={bldg?.zip ? `ZIP: ${bldg.zip}` : null}
-                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(site.addr)}`,"_blank")}
-                  last/>
+                  title={bldg?.fullAddr||site.addr||"—"}
+                  subtitle={[bldg?.county, bldg?.country].filter(Boolean).join(" · ")||null}
+                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(bldg?.fullAddr||site.addr)}`,"_blank")}
+                  last={!(bldg?.lat||site.lat)}/>
+                {(bldg?.lat||site.lat) && (
+                  <ListRow title="Coordinates"
+                    right={<span style={{...T.caption,color:iOS.label2,fontVariantNumeric:"tabular-nums"}}>
+                      {(bldg?.lat||site.lat).toFixed(5)}, {(bldg?.lng||site.lng).toFixed(5)}
+                    </span>}
+                    showChevron={false} last/>
+                )}
               </Section>
 
-              {/* Coordinates / location from building */}
-              {(bldg?.latitude||site.lat) && (
-                <Section header="Location">
+              {/* ── Details ── */}
+              {(bldg?.subMarket||bldg?.zoning||bldg?.lossFactor!=null||bldg?.acres||bldg?.ceilingHeightLow||bldg?.columnSpanWidth) && (
+                <Section header="Details">
                   {[
-                    {l:"Latitude",  v:(bldg?.latitude||site.lat)?.toFixed(6)},
-                    {l:"Longitude", v:(bldg?.longitude||site.lng)?.toFixed(6)},
-                  ].map((d,i,arr)=>(
+                    bldg?.subMarket          ? {l:"Sub-Market",          v:bldg.subMarket}                                                         : null,
+                    bldg?.zoning             ? {l:"Zoning",              v:bldg.zoning}                                                            : null,
+                    bldg?.lossFactor!=null   ? {l:"Loss Factor",         v:`${bldg.lossFactor}%`}                                                  : null,
+                    bldg?.acres              ? {l:"Acres",               v:bldg.acres}                                                             : null,
+                    (bldg?.ceilingHeightLow||bldg?.ceilingHeightHigh)
+                      ? {l:"Ceiling Height", v:[bldg.ceilingHeightLow,bldg.ceilingHeightHigh].filter(Boolean).join("–")+"'"} : null,
+                    (bldg?.columnSpanWidth||bldg?.columnSpanHeight)
+                      ? {l:"Column Span",    v:[bldg.columnSpanWidth,bldg.columnSpanHeight].filter(Boolean).join("×")+"'"} : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
                     <ListRow key={d.l} title={d.l}
-                      right={<span style={{...T.subhead,color:iOS.label2,fontVariantNumeric:"tabular-nums"}}>{d.v}</span>}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
                       showChevron={false} last={i===arr.length-1}/>
                   ))}
                 </Section>
               )}
 
-              {/* Contacts from API */}
+              {/* ── Parking ── */}
+              {(bldg?.parkingRatio!=null||bldg?.parkingCoveredSpots||bldg?.parkingTruckSpots) && (
+                <Section header="Parking">
+                  {[
+                    bldg?.parkingRatio!=null        ? {l:"Parking Ratio",      v:`${bldg.parkingRatio}/1,000 sqft`}         : null,
+                    bldg?.parkingCovered!=null       ? {l:"Covered Parking",    v:bldg.parkingCovered?"Yes":"No"}             : null,
+                    bldg?.parkingCoveredSpots        ? {l:"Covered Spots",      v:bldg.parkingCoveredSpots}                   : null,
+                    bldg?.parkingReservedSpots       ? {l:"Reserved Spots",     v:bldg.parkingReservedSpots}                  : null,
+                    bldg?.parkingUnreservedSpots     ? {l:"Unreserved Spots",   v:bldg.parkingUnreservedSpots}                : null,
+                    bldg?.parkingTruckSpots          ? {l:"Truck Spots",        v:bldg.parkingTruckSpots}                     : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Loading ── */}
+              {(bldg?.docksInterior!=null||bldg?.docksExterior!=null||bldg?.driveIns!=null) && (
+                <Section header="Loading">
+                  {[
+                    bldg?.docksInterior!=null ? {l:"Interior Docks",  v:bldg.docksInterior}  : null,
+                    bldg?.docksExterior!=null ? {l:"Exterior Docks",  v:bldg.docksExterior}  : null,
+                    bldg?.driveIns!=null      ? {l:"Drive-In Doors",  v:bldg.driveIns}        : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Utilities ── */}
+              {(bldg?.sprinklered||bldg?.amps||bldg?.electric||bldg?.acPercentage!=null) && (
+                <Section header="Utilities">
+                  {[
+                    bldg?.sprinklered        ? {l:"Sprinklers",       v:bldg.sprinklered}                          : null,
+                    bldg?.amps               ? {l:"Amps",             v:bldg.amps}                                  : null,
+                    bldg?.electric           ? {l:"Electric",         v:bldg.electric}                              : null,
+                    bldg?.phase3!=null       ? {l:"3-Phase Power",    v:bldg.phase3?"Yes":"No"}                     : null,
+                    bldg?.acPercentage!=null ? {l:"A/C Coverage",     v:`${bldg.acPercentage}%`}                   : null,
+                    bldg?.sewer              ? {l:"Sewer",            v:bldg.sewer}                                 : null,
+                    bldg?.rail!=null         ? {l:"Rail",             v:bldg.rail?"Yes":"No"}                       : null,
+                    bldg?.railActive!=null   ? {l:"Rail Active",      v:bldg.railActive?"Yes":"No"}                 : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Units ── */}
+              {bldg?.units && bldg.units.length>0 && (
+                <Section header={`Units (${bldg.units.length})`}>
+                  {bldg.units.map((u,i)=>(
+                    <ListRow key={u.id}
+                      left={<IconBox name="doc" color={u.status==="Occupied"?iOS.orange:iOS.green}/>}
+                      title={`Suite ${u.suite||u.id}${u.floor?` · Floor ${u.floor}`:""}`}
+                      subtitle={[
+                        u.size?`${Number(u.size).toLocaleString()} sqft`:null,
+                        u.status,
+                        u.rentCost&&u.rentCost!=="0"?`$${u.rentCost}/sqft`:null,
+                        u.availableDate?`Avail: ${u.availableDate}`:null,
+                      ].filter(Boolean).join(" · ")}
+                      showChevron={false} last={i===bldg.units.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Contacts from API ── */}
               {site.contacts && site.contacts.length > 0 && (
                 <Section header="Contacts">
                   {site.contacts.map((c,i,arr)=>(
@@ -1441,20 +1524,6 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
                       left={<Avatar init={(c.name||"?").split(" ").map(n=>n[0]).join("")} size={36} color={iOS.teal}/>}
                       title={c.name||"—"}
                       subtitle={[c.phone, c.email].filter(Boolean).join(" · ")}
-                      showChevron={false} last={i===arr.length-1}/>
-                  ))}
-                </Section>
-              )}
-              {/* Unit / lease counts from API */}
-              {(site.unitsCount > 0 || site.leasesCount > 0) && (
-                <Section header="Summary">
-                  {[
-                    site.unitsCount   ? {l:"Units",    v:site.unitsCount}   : null,
-                    site.leasesCount  ? {l:"Leases",   v:site.leasesCount}  : null,
-                    site.expensesCount? {l:"Expenses", v:site.expensesCount}: null,
-                  ].filter(Boolean).map((d,i,arr)=>(
-                    <ListRow key={d.l} title={d.l}
-                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
                       showChevron={false} last={i===arr.length-1}/>
                   ))}
                 </Section>
@@ -1700,7 +1769,7 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
       // Fetch buildings not yet cached
       const toFetch=unique.filter(id=>!buildingCache[id]);
       if(toFetch.length>0){
-        const results=await Promise.allSettled(toFetch.map(id=>getBuilding(id).then(b=>({id,b}))));
+        const results=await Promise.allSettled(toFetch.map(id=>getBuilding(id).then(b=>({id,b:normalizeBuilding(b)}))));
         const newEntries={};
         results.forEach(r=>{ if(r.status==="fulfilled") newEntries[r.value.id]=r.value.b; });
         if(Object.keys(newEntries).length>0){
@@ -1742,28 +1811,33 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
       ? proj.sitesDetail
       : (proj.siteId ? [sites.find(s=>s.id===proj.siteId)].filter(Boolean) : []);
 
-    // Use compsDetail from full project detail when available, enriched with building cache data
+    // Use compsDetail from full project detail when available, enriched with normalized building cache
     const compsFromDetail = proj.compsDetail && proj.compsDetail.length>0
       ? proj.compsDetail.map(c=>{
           // Match building from cache using the raw project response comp.building.id
           const rawComp=(proj._raw?.comps||[]).find(rc=>String(rc.id)===c.id);
           const bldgId=rawComp?.building?.id;
-          const bldg=bldgId?buildingCache[bldgId]:null;
+          const bldg=bldgId?buildingCache[bldgId]:null; // bldg is now a normalizeBuilding() result
           return {
             ...c,
-            // Prefer building endpoint data when available
-            name: bldg?.building_name
-              ? bldg.building_name.split(",")[0].trim()
+            // Prefer normalized building data when available
+            name: bldg?.addrLine1
+              ? (bldg.addrLine1)   // use address line as name (buildings often have no name field)
               : (c.name || `Comp ${c.id}`),
-            addr: c.addr || (bldg ? [bldg.address,bldg.city,bldg.state].filter(Boolean).join(", ") : "—"),
-            sqft:  bldg?.total_square_footage || c.sqft || 0,
-            buildingType: bldg?.building_type || c.buildingType || "",
-            yearBuilt: bldg?.year_built || null,
-            floors: bldg?.number_of_floors || null,
+            addr: bldg?.fullAddr || c.addr || "—",
+            sqft:  bldg?.totalSqft || c.sqft || 0,
+            buildingType: bldg?.buildingType || c.buildingType || "",
+            yearBuilt: bldg?.yearBuilt || null,
+            yearRenovated: bldg?.yearRenovated || null,
+            floors: bldg?.floors || null,
+            bldgClass: bldg?.bldgClass || null,
+            leedCert: bldg?.leedCert || null,
             zoning: bldg?.zoning || null,
-            bldgClass: bldg?.class || null,
-            lat: bldg?.latitude || c.lat || null,
-            lng: bldg?.longitude || c.lng || null,
+            parkingRatio: bldg?.parkingRatio ?? null,
+            availableSqft: bldg?.availableSqft ?? null,
+            region: bldg?.region || null,
+            lat: bldg?.lat || c.lat || null,
+            lng: bldg?.lng || c.lng || null,
           };
         })
       : null;
@@ -1846,6 +1920,9 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
                         c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
                         c.yearBuilt ? `Built ${c.yearBuilt}` : null,
                         c.bldgClass ? `Class ${c.bldgClass}` : null,
+                        c.leedCert  ? `LEED ${c.leedCert}`   : null,
+                        c.floors    ? `${c.floors} fl`        : null,
+                        c.parkingRatio!=null ? `Parking ${c.parkingRatio}` : null,
                       ].filter(Boolean).join(" · ")}
                       right={scored.length>0?<ScoreChip score={c.score}/>:null}
                       showChevron={false} last={i===compsToShow.length-1}/>
@@ -2247,7 +2324,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
     if(!buildingApiId) return;
     setCompBuildingLoading(true);
     getBuilding(buildingApiId).then(raw=>{
-      setCompBuildingData(prev=>({...prev,[activeComp]:raw}));
+      setCompBuildingData(prev=>({...prev,[activeComp]:normalizeBuilding(raw)}));
     }).catch(err=>{
       console.warn("[REopt] Comp building fetch failed:",err);
     }).finally(()=>{
@@ -2479,20 +2556,25 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                   Loading building details…
                 </div>
               )}
+
+              {/* ── Overview ── */}
               <Section header="Overview">
                 {[
-                  {l:"Address",          v:comp.addr||compBldg?.address},
-                  (compBldg?.total_square_footage||comp.sqft)
-                    ? {l:"Square Footage", v:Number(compBldg?.total_square_footage||comp.sqft).toLocaleString()+" sqft"} : null,
-                  (compBldg?.building_type||comp.buildingType)
-                    ? {l:"Building Type",  v:compBldg?.building_type||comp.buildingType} : null,
-                  compBldg?.year_built    ? {l:"Year Built",     v:compBldg.year_built}    : null,
-                  compBldg?.number_of_floors ? {l:"Floors",      v:compBldg.number_of_floors} : null,
-                  compBldg?.parking_ratio ? {l:"Parking Ratio",  v:compBldg.parking_ratio}  : null,
-                  compBldg?.zoning        ? {l:"Zoning",         v:compBldg.zoning}          : null,
-                  compBldg?.class         ? {l:"Class",          v:compBldg.class}            : null,
-                  comp.rent               ? {l:"Asking Rent",    v:`$${comp.rent}/sqft`}      : null,
-                ].filter(d=>d&&d.v).map((d,i,arr)=>(
+                  (compBldg?.totalSqft||comp.sqft)    ? {l:"Total Sq Ft",        v:Number(compBldg?.totalSqft||comp.sqft).toLocaleString()+" sqft"} : null,
+                  compBldg?.availableSqft!=null && compBldg.availableSqft>=0
+                                                       ? {l:"Available Sq Ft",    v:Number(compBldg.availableSqft).toLocaleString()+" sqft"}         : null,
+                  compBldg?.officeSqft                 ? {l:"Office Sq Ft",       v:Number(compBldg.officeSqft).toLocaleString()+" sqft"}            : null,
+                  (compBldg?.buildingType||comp.buildingType)
+                                                       ? {l:"Building Type",      v:compBldg?.buildingType||comp.buildingType}                       : null,
+                  compBldg?.bldgClass                  ? {l:"Class",              v:compBldg.bldgClass}                                              : null,
+                  compBldg?.leedCert                   ? {l:"LEED Certification", v:compBldg.leedCert}                                               : null,
+                  (compBldg?.yearBuilt||comp.yearBuilt)? {l:"Year Built",         v:compBldg?.yearBuilt||comp.yearBuilt}                             : null,
+                  compBldg?.yearRenovated              ? {l:"Year Renovated",     v:compBldg.yearRenovated}                                           : null,
+                  compBldg?.floors                     ? {l:"Floors",             v:compBldg.floors}                                                  : null,
+                  compBldg?.unitsCount                 ? {l:"Units",              v:compBldg.unitsCount}                                              : null,
+                  comp.rent                            ? {l:"Asking Rent",        v:`$${comp.rent}/sqft`}                                            : null,
+                  compBldg?.region                     ? {l:"Region",             v:compBldg.region}                                                  : null,
+                ].filter(d=>d&&d.v!=null).map((d,i,arr)=>(
                   <ListRow key={d.l} title={d.l}
                     right={<span style={{...T.subhead,color:iOS.label2,maxWidth:160,textAlign:"right",
                       whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.v}</span>}
@@ -2500,37 +2582,112 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                 ))}
               </Section>
 
-              {/* Building description from API */}
-              {compBldg?.description && (
-                <Section header="Description">
-                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.6}}>
-                    {compBldg.description}
-                  </div>
-                </Section>
-              )}
-
-              {/* Building name if different from display name */}
-              {compBldg?.building_name && compBldg.building_name !== comp.name && (
-                <Section header="Full Building Name">
-                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.5}}>
-                    {compBldg.building_name}
-                  </div>
-                </Section>
-              )}
-
+              {/* ── Address / Location ── */}
               <Section header="Location">
-                <ListRow title="Open in Maps" subtitle={comp.addr||compBldg?.address}
-                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(comp.addr||compBldg?.address||comp.name)}`,"_blank")}
+                <ListRow
                   left={<IconBox name="map" color={iOS.blue}/>}
-                  last={!(compBldg?.latitude)}/>
-                {compBldg?.latitude && (
+                  title={compBldg?.fullAddr||comp.addr||"—"}
+                  subtitle={[compBldg?.county, compBldg?.country].filter(Boolean).join(" · ")||null}
+                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(compBldg?.fullAddr||comp.addr||comp.name)}`,"_blank")}
+                  last={!(compBldg?.lat||comp.lat)}/>
+                {(compBldg?.lat||comp.lat) && (
                   <ListRow title="Coordinates"
                     right={<span style={{...T.caption,color:iOS.label2,fontVariantNumeric:"tabular-nums"}}>
-                      {compBldg.latitude.toFixed(5)}, {compBldg.longitude.toFixed(5)}
+                      {(compBldg?.lat||comp.lat).toFixed(5)}, {(compBldg?.lng||comp.lng).toFixed(5)}
                     </span>}
                     showChevron={false} last/>
                 )}
               </Section>
+
+              {/* ── Details ── */}
+              {(compBldg?.subMarket||compBldg?.zoning||compBldg?.lossFactor!=null||compBldg?.acres||compBldg?.ceilingHeightLow||compBldg?.columnSpanWidth) && (
+                <Section header="Details">
+                  {[
+                    compBldg?.subMarket        ? {l:"Sub-Market",     v:compBldg.subMarket}                                                                    : null,
+                    compBldg?.zoning           ? {l:"Zoning",         v:compBldg.zoning}                                                                       : null,
+                    compBldg?.lossFactor!=null ? {l:"Loss Factor",    v:`${compBldg.lossFactor}%`}                                                             : null,
+                    compBldg?.acres            ? {l:"Acres",          v:compBldg.acres}                                                                         : null,
+                    (compBldg?.ceilingHeightLow||compBldg?.ceilingHeightHigh)
+                      ? {l:"Ceiling Height",   v:[compBldg.ceilingHeightLow,compBldg.ceilingHeightHigh].filter(Boolean).join("–")+"'"} : null,
+                    (compBldg?.columnSpanWidth||compBldg?.columnSpanHeight)
+                      ? {l:"Column Span",      v:[compBldg.columnSpanWidth,compBldg.columnSpanHeight].filter(Boolean).join("×")+"'"} : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Parking ── */}
+              {(compBldg?.parkingRatio!=null||compBldg?.parkingCoveredSpots||compBldg?.parkingTruckSpots) && (
+                <Section header="Parking">
+                  {[
+                    compBldg?.parkingRatio!=null      ? {l:"Parking Ratio",    v:`${compBldg.parkingRatio}/1,000 sqft`} : null,
+                    compBldg?.parkingCovered!=null     ? {l:"Covered Parking",  v:compBldg.parkingCovered?"Yes":"No"}    : null,
+                    compBldg?.parkingCoveredSpots      ? {l:"Covered Spots",    v:compBldg.parkingCoveredSpots}           : null,
+                    compBldg?.parkingReservedSpots     ? {l:"Reserved Spots",   v:compBldg.parkingReservedSpots}          : null,
+                    compBldg?.parkingUnreservedSpots   ? {l:"Unreserved Spots", v:compBldg.parkingUnreservedSpots}        : null,
+                    compBldg?.parkingTruckSpots        ? {l:"Truck Spots",      v:compBldg.parkingTruckSpots}             : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Loading ── */}
+              {(compBldg?.docksInterior!=null||compBldg?.docksExterior!=null||compBldg?.driveIns!=null) && (
+                <Section header="Loading">
+                  {[
+                    compBldg?.docksInterior!=null ? {l:"Interior Docks", v:compBldg.docksInterior} : null,
+                    compBldg?.docksExterior!=null ? {l:"Exterior Docks", v:compBldg.docksExterior} : null,
+                    compBldg?.driveIns!=null      ? {l:"Drive-In Doors", v:compBldg.driveIns}       : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Utilities ── */}
+              {(compBldg?.sprinklered||compBldg?.amps||compBldg?.electric||compBldg?.acPercentage!=null) && (
+                <Section header="Utilities">
+                  {[
+                    compBldg?.sprinklered        ? {l:"Sprinklers",    v:compBldg.sprinklered}               : null,
+                    compBldg?.amps               ? {l:"Amps",          v:compBldg.amps}                       : null,
+                    compBldg?.electric           ? {l:"Electric",      v:compBldg.electric}                   : null,
+                    compBldg?.phase3!=null       ? {l:"3-Phase Power", v:compBldg.phase3?"Yes":"No"}           : null,
+                    compBldg?.acPercentage!=null ? {l:"A/C Coverage",  v:`${compBldg.acPercentage}%`}         : null,
+                    compBldg?.sewer              ? {l:"Sewer",         v:compBldg.sewer}                       : null,
+                    compBldg?.rail!=null         ? {l:"Rail",          v:compBldg.rail?"Yes":"No"}             : null,
+                  ].filter(Boolean).map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
+              {/* ── Units ── */}
+              {compBldg?.units && compBldg.units.length>0 && (
+                <Section header={`Units (${compBldg.units.length})`}>
+                  {compBldg.units.map((u,i)=>(
+                    <ListRow key={u.id}
+                      left={<IconBox name="doc" color={u.status==="Occupied"?iOS.orange:iOS.green}/>}
+                      title={`Suite ${u.suite||u.id}${u.floor?` · Floor ${u.floor}`:""}`}
+                      subtitle={[
+                        u.size?`${Number(u.size).toLocaleString()} sqft`:null,
+                        u.status,
+                        u.rentCost&&u.rentCost!=="0"?`$${u.rentCost}/sqft`:null,
+                        u.availableDate?`Avail: ${u.availableDate}`:null,
+                      ].filter(Boolean).join(" · ")}
+                      showChevron={false} last={i===compBldg.units.length-1}/>
+                  ))}
+                </Section>
+              )}
             </div>
           )}
 

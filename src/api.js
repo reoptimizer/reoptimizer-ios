@@ -188,6 +188,127 @@ export async function getBuilding(id) {
   return json.data;
 }
 
+/**
+ * Normalize API building → app building format
+ *
+ * Real API shape (GET /buildings/{id}):
+ *   { id, building_number, address: { line_1, line_2, city, state, postal_code, county },
+ *     coordinates: { latitude, longitude },
+ *     type: { id, name },
+ *     class, leed_certification, year_built, year_renovated,
+ *     total_square_footage, office_square_footage, available_square_footage,
+ *     floors, units_count, avg_rent, image_url,
+ *     region: { id, name }, country: { id, name },
+ *     details: { sub_market, zoning, loss_factor, acres, ceiling_height_low,
+ *                ceiling_height_high, column_span_width, column_span_height },
+ *     parking: { ratio, covered, covered_spots, reserved_spots, unreserved_spots, truck_spots },
+ *     loading: { docks_interior, docks_exterior, drive_ins },
+ *     utilities: { ac_percentage, amps, electric, phase3, sprinklered, rail, rail_active, sewer },
+ *     units: [{ id, suite, floor, size, status, rent_cost, available_date }]
+ *   }
+ */
+export function normalizeBuilding(raw) {
+  if (!raw) return null;
+
+  const addr = raw.address || {};
+  const coords = raw.coordinates || {};
+  const type = raw.type || {};
+  const details = raw.details || {};
+  const parking = raw.parking || {};
+  const loading = raw.loading || {};
+  const utilities = raw.utilities || {};
+
+  // Full display address
+  const addrLine = [addr.line_1, addr.line_2].filter(Boolean).join(", ");
+  const fullAddr = [addrLine, addr.city, addr.state, addr.postal_code].filter(Boolean).join(", ");
+
+  return {
+    id: raw.id,
+    buildingNumber: raw.building_number || null,
+
+    // Address
+    addrLine1: addr.line_1 || "",
+    addrLine2: addr.line_2 || null,
+    city: addr.city || "",
+    state: addr.state || "",
+    postalCode: addr.postal_code || "",
+    county: addr.county || null,
+    fullAddr: fullAddr || "—",
+
+    // Coordinates
+    lat: coords.latitude || null,
+    lng: coords.longitude || null,
+
+    // Classification
+    buildingType: type.name || "",
+    bldgClass: raw.class || null,
+    leedCert: raw.leed_certification || null,
+
+    // Size & age
+    yearBuilt: raw.year_built || null,
+    yearRenovated: raw.year_renovated || null,
+    totalSqft: raw.total_square_footage || 0,
+    officeSqft: raw.office_square_footage || null,
+    availableSqft: raw.available_square_footage ?? null,
+    floors: raw.floors || null,
+    unitsCount: raw.units_count || 0,
+    avgRent: raw.avg_rent || 0,
+
+    // Image
+    imageUrl: raw.image_url || null,
+
+    // Region / country
+    region: raw.region?.name || null,
+    country: raw.country?.name || null,
+
+    // Details
+    subMarket: details.sub_market || null,
+    zoning: details.zoning || null,
+    lossFactor: details.loss_factor ?? null,
+    acres: details.acres || null,
+    ceilingHeightLow: details.ceiling_height_low || null,
+    ceilingHeightHigh: details.ceiling_height_high || null,
+    columnSpanWidth: details.column_span_width || null,
+    columnSpanHeight: details.column_span_height || null,
+
+    // Parking
+    parkingRatio: parking.ratio ?? null,
+    parkingCovered: parking.covered ?? null,
+    parkingCoveredSpots: parking.covered_spots ?? null,
+    parkingReservedSpots: parking.reserved_spots ?? null,
+    parkingUnreservedSpots: parking.unreserved_spots ?? null,
+    parkingTruckSpots: parking.truck_spots ?? null,
+
+    // Loading
+    docksInterior: loading.docks_interior ?? null,
+    docksExterior: loading.docks_exterior ?? null,
+    driveIns: loading.drive_ins ?? null,
+
+    // Utilities
+    acPercentage: utilities.ac_percentage ?? null,
+    amps: utilities.amps || null,
+    electric: utilities.electric || null,
+    phase3: utilities.phase3 ?? null,
+    sprinklered: utilities.sprinklered || null,
+    rail: utilities.rail ?? null,
+    railActive: utilities.rail_active ?? null,
+    sewer: utilities.sewer ?? null,
+
+    // Units
+    units: (raw.units || []).map(u => ({
+      id: u.id,
+      suite: u.suite || "",
+      floor: u.floor || "",
+      size: u.size || 0,
+      status: u.status || "",
+      rentCost: u.rent_cost || null,
+      availableDate: u.available_date || null,
+    })),
+
+    _raw: raw,
+  };
+}
+
 /* ═══════════════════════════════════════════════════════
    COMPS
 ═══════════════════════════════════════════════════════ */
