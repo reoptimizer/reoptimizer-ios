@@ -4,7 +4,11 @@
  * Auth: Sanctum Bearer token
  */
 
-const BASE = import.meta.env.VITE_API_URL || "https://stage.reoptimizer.ai/api/mobile";
+// In dev the Vite proxy rewrites /api/mobile/* → https://stage.reoptimizer.ai/api/mobile/*
+// so CORS is bypassed (server-to-server). In production use the full URL from env.
+const BASE = import.meta.env.DEV
+  ? "/api/mobile"
+  : (import.meta.env.VITE_API_URL || "https://stage.reoptimizer.ai/api/mobile");
 const DEVICE_NAME = "REoptimizer Mobile Web";
 
 /* ── Token storage (in-memory + localStorage fallback) ── */
