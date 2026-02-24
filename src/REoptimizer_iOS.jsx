@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
-  getSites, getProjects, getProject, getComps, getTours, getDashboard,
+  getSites, getSite, getBuilding, getProjects, getProject, getComps, getTours, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
   normalizeSite, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
 } from "./api.js";
@@ -1247,9 +1247,40 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
   const [form, setForm]=useState({name:"",addr:"",type:"Owned",sqft:"",ch:"",status:"Active"});
   const [siteTab,setSiteTab]=useState("building");
   const [sitePhotos,setSitePhotos]=useState({}); // sitePhotos[siteId] = [{id,url,name}]
+  const [siteDetailLoading,setSiteDetailLoading]=useState(false);
+  const [buildingData,setBuildingData]=useState({}); // buildingData[siteId] = normalized building obj
   const siteFileRef=useRef(null);
   const site=sites.find(s=>s.id===sel);
   useEffect(()=>{ setSiteTab("building"); },[sel]);
+
+  // When a site is selected, fetch full site detail then fetch the linked building
+  useEffect(()=>{
+    if(!sel) return;
+    const s=sites.find(x=>x.id===sel);
+    if(!s || !s._apiId) return;
+    // Already have building data for this site? Skip.
+    if(buildingData[sel]) return;
+    setSiteDetailLoading(true);
+    getSite(s._apiId).then(async rawSite=>{
+      // Merge full site detail (contacts, units/leases counts, etc.)
+      const normalized=normalizeSite(rawSite);
+      setSites(prev=>prev.map(x=>x.id===sel?{...x,...normalized}:x));
+      // Now fetch the building using building.id from the site response
+      const buildingId=rawSite?.building?.id;
+      if(buildingId){
+        try{
+          const rawBuilding=await getBuilding(buildingId);
+          setBuildingData(prev=>({...prev,[sel]:rawBuilding}));
+        }catch(e){
+          console.warn("[REopt] Building fetch failed:",e);
+        }
+      }
+    }).catch(err=>{
+      console.warn("[REopt] Site detail fetch failed:",err);
+    }).finally(()=>{
+      setSiteDetailLoading(false);
+    });
+  },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addSite=()=>{
     if(!form.name)return;
@@ -1277,6 +1308,8 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
       ...prev,[site.id]:(prev[site.id]??[]).filter(p=>p.id!==id)
     }));
 
+    const bldg = buildingData[site.id] || null; // full building from GET /buildings/{id}
+
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease"}}>
         <NavBar title={site.name} onBack={()=>setSel(null)} backLabel="Sites"
@@ -1286,6 +1319,11 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
         <SiteSubNav tab={siteTab} setTab={setSiteTab}/>
 
         <div style={{flex:1,overflowY:"auto",padding:"12px 14px 28px"}}>
+          {siteDetailLoading && (
+            <div style={{textAlign:"center",padding:"8px 0 4px",color:iOS.label3,fontSize:13}}>
+              Loading building details…
+            </div>
+          )}
 
           {/* ══ PHOTOS ══ */}
           {siteTab==="photos" && (
@@ -1347,20 +1385,54 @@ function Sites({sites, setSites, tasks, setTasks, sites_all, projects_all, toast
             <div>
               <Section header="Overview">
                 {[
-                  site.sqft   ? {l:"Square Footage", v:Number(site.sqft).toLocaleString()+" sqft"} : null,
-                  site.type   ? {l:"Building Type",  v:site.type}                                   : null,
-                  site.yearBuilt ? {l:"Year Built",  v:site.yearBuilt}                              : null,
-                  site.status ? {l:"Status",         v:site.status}                                 : null,
-                  site.last   ? {l:"Last Updated",   v:site.last}                                   : null,
+                  (bldg?.total_square_footage||site.sqft) ? {l:"Square Footage", v:Number(bldg?.total_square_footage||site.sqft).toLocaleString()+" sqft"} : null,
+                  (bldg?.building_type||site.type)        ? {l:"Building Type",  v:bldg?.building_type||site.type}                                          : null,
+                  (bldg?.year_built||site.yearBuilt)      ? {l:"Year Built",     v:bldg?.year_built||site.yearBuilt}                                        : null,
+                  bldg?.number_of_floors                  ? {l:"Floors",         v:bldg.number_of_floors}                                                   : null,
+                  bldg?.parking_ratio                     ? {l:"Parking Ratio",  v:bldg.parking_ratio}                                                      : null,
+                  bldg?.zoning                            ? {l:"Zoning",         v:bldg.zoning}                                                             : null,
+                  bldg?.class                             ? {l:"Class",          v:bldg.class}                                                               : null,
+                  site.status                             ? {l:"Status",         v:site.status}                                                              : null,
+                  site.last                               ? {l:"Last Updated",   v:site.last}                                                                : null,
                 ].filter(Boolean).map((d,i,arr)=>(
                   <ListRow key={d.l} title={d.l}
                     right={<span style={{...T.subhead,color:iOS.label2}}>{d.v}</span>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
+
+              {/* Building description */}
+              {bldg?.description && (
+                <Section header="Description">
+                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.6}}>
+                    {bldg.description}
+                  </div>
+                </Section>
+              )}
+
               <Section header="Address">
-                <ListRow title={site.addr||"—"} showChevron={false} last/>
+                <ListRow
+                  left={<IconBox name="map" color={iOS.blue}/>}
+                  title={site.addr||"—"}
+                  subtitle={bldg?.zip ? `ZIP: ${bldg.zip}` : null}
+                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(site.addr)}`,"_blank")}
+                  last/>
               </Section>
+
+              {/* Coordinates / location from building */}
+              {(bldg?.latitude||site.lat) && (
+                <Section header="Location">
+                  {[
+                    {l:"Latitude",  v:(bldg?.latitude||site.lat)?.toFixed(6)},
+                    {l:"Longitude", v:(bldg?.longitude||site.lng)?.toFixed(6)},
+                  ].map((d,i,arr)=>(
+                    <ListRow key={d.l} title={d.l}
+                      right={<span style={{...T.subhead,color:iOS.label2,fontVariantNumeric:"tabular-nums"}}>{d.v}</span>}
+                      showChevron={false} last={i===arr.length-1}/>
+                  ))}
+                </Section>
+              )}
+
               {/* Contacts from API */}
               {site.contacts && site.contacts.length > 0 && (
                 <Section header="Contacts">
@@ -1604,8 +1676,10 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
   const [form,setForm]=useState({name:"",siteId:"",stage:"Initial Outreach"});
   const [cf,setCf]=useState({name:"",addr:"",sqft:"",rent:"",scores:{ch:5,pc:5,hp:5,la:5,ur:5,tr:5}});
   const [detailLoading,setDetailLoading]=useState(false);
+  // buildingCache[buildingApiId] = raw building obj from GET /buildings/{id}
+  const [buildingCache,setBuildingCache]=useState({});
 
-  // When a project is selected, fetch full detail from API
+  // When a project is selected, fetch full detail from API then fetch all linked buildings
   useEffect(()=>{
     if(!sel) return;
     const p=projects.find(x=>x.id===sel);
@@ -1614,9 +1688,25 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
     // Also skip if it has no _apiId (locally created)
     if(!p || !p._apiId) return;
     setDetailLoading(true);
-    getProject(p._apiId).then(raw=>{
+    getProject(p._apiId).then(async raw=>{
       const normalized=normalizeProject(raw);
       setProjects(prev=>prev.map(x=>x.id===sel?{...x,...normalized}:x));
+      // Collect unique building IDs from sites + comps in the project detail
+      const buildingIds=[
+        ...(raw.sites||[]).map(s=>s.building?.id).filter(Boolean),
+        ...(raw.comps||[]).map(c=>c.building?.id).filter(Boolean),
+      ];
+      const unique=[...new Set(buildingIds)];
+      // Fetch buildings not yet cached
+      const toFetch=unique.filter(id=>!buildingCache[id]);
+      if(toFetch.length>0){
+        const results=await Promise.allSettled(toFetch.map(id=>getBuilding(id).then(b=>({id,b}))));
+        const newEntries={};
+        results.forEach(r=>{ if(r.status==="fulfilled") newEntries[r.value.id]=r.value.b; });
+        if(Object.keys(newEntries).length>0){
+          setBuildingCache(prev=>({...prev,...newEntries}));
+        }
+      }
     }).catch(err=>{
       console.warn("[REopt] Failed to load project detail:",err);
     }).finally(()=>{
@@ -1652,8 +1742,31 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
       ? proj.sitesDetail
       : (proj.siteId ? [sites.find(s=>s.id===proj.siteId)].filter(Boolean) : []);
 
-    // Use compsDetail from full project detail when available
-    const compsFromDetail = proj.compsDetail && proj.compsDetail.length>0 ? proj.compsDetail : null;
+    // Use compsDetail from full project detail when available, enriched with building cache data
+    const compsFromDetail = proj.compsDetail && proj.compsDetail.length>0
+      ? proj.compsDetail.map(c=>{
+          // Match building from cache using the raw project response comp.building.id
+          const rawComp=(proj._raw?.comps||[]).find(rc=>String(rc.id)===c.id);
+          const bldgId=rawComp?.building?.id;
+          const bldg=bldgId?buildingCache[bldgId]:null;
+          return {
+            ...c,
+            // Prefer building endpoint data when available
+            name: bldg?.building_name
+              ? bldg.building_name.split(",")[0].trim()
+              : (c.name || `Comp ${c.id}`),
+            addr: c.addr || (bldg ? [bldg.address,bldg.city,bldg.state].filter(Boolean).join(", ") : "—"),
+            sqft:  bldg?.total_square_footage || c.sqft || 0,
+            buildingType: bldg?.building_type || c.buildingType || "",
+            yearBuilt: bldg?.year_built || null,
+            floors: bldg?.number_of_floors || null,
+            zoning: bldg?.zoning || null,
+            bldgClass: bldg?.class || null,
+            lat: bldg?.latitude || c.lat || null,
+            lng: bldg?.longitude || c.lng || null,
+          };
+        })
+      : null;
 
     const scored=pComps.map(c=>({...c,score:calcIPS(c.scores)})).sort((a,b)=>b.score-a.score);
     const barData=KSD.map(k=>({
@@ -1722,17 +1835,21 @@ function Projects({projects, setProjects, sites, comps, setComps, tasks=[], setT
                 footer="Ranked by Industrial Profitability Score™">
                 {compsToShow.length===0 && !detailLoading && <ListRow title="No comps yet" showChevron={false} last/>}
                 {compsToShow.map((c,i)=>(
-                  <ListRow key={c.id}
-                    left={<span style={{width:28,height:28,borderRadius:8,background:i===0?iOS.green:iOS.blue,
-                      color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{i+1}</span>}
-                    title={c.name}
-                    subtitle={[
-                      c.addr,
-                      c.buildingType,
-                      c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
-                    ].filter(Boolean).join(" · ")}
-                    right={scored.length>0?<ScoreChip score={c.score}/>:null}
-                    showChevron={false} last={i===compsToShow.length-1}/>
+                  <div key={c.id}>
+                    <ListRow
+                      left={<span style={{width:28,height:28,borderRadius:8,background:i===0?iOS.green:iOS.blue,
+                        color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{i+1}</span>}
+                      title={c.name}
+                      subtitle={[
+                        c.addr,
+                        c.buildingType,
+                        c.sqft ? `${Number(c.sqft).toLocaleString()} sqft` : null,
+                        c.yearBuilt ? `Built ${c.yearBuilt}` : null,
+                        c.bldgClass ? `Class ${c.bldgClass}` : null,
+                      ].filter(Boolean).join(" · ")}
+                      right={scored.length>0?<ScoreChip score={c.score}/>:null}
+                      showChevron={false} last={i===compsToShow.length-1}/>
+                  </div>
                 ))}
               </Section>
             );
@@ -2101,9 +2218,42 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   const [commentText,setCommentText]=useState("");
   const quickPhotoRef=useRef(null);
   const quickVideoRef=useRef(null);
+  // building data cache: compBuildingData[compId] = raw building obj from GET /buildings/{id}
+  const [compBuildingData,setCompBuildingData]=useState({});
+  const [compBuildingLoading,setCompBuildingLoading]=useState(false);
   // Reset tabs when navigating
   useEffect(()=>{ setTourTab("properties"); },[activeTour]);
   useEffect(()=>{ setCompTab("scoring"); },[activeComp]);
+
+  // Fetch building detail when a comp is opened in the tour
+  useEffect(()=>{
+    if(!activeComp) return;
+    if(compBuildingData[activeComp]) return; // already cached
+    const tour=tours.find(t=>t.id===activeTour);
+    if(!tour) return;
+    // Find the comp — could be in global comps or from tour schedule (_fromSchedule)
+    const tCompsAll = tour.schedule?.length
+      ? tour.schedule.filter(s=>s.slotType==="comp"&&s.building).map(s=>({
+          id: String(s.building.id),
+          _buildingApiId: s.building.id,
+        }))
+      : comps.filter(c=>tour.comps.includes(c.id));
+    const matchedComp = tCompsAll.find(c=>c.id===activeComp);
+    // Prefer building._apiId from the comp itself
+    const globalComp = comps.find(c=>c.id===activeComp);
+    const buildingApiId = globalComp?._raw?.building?.id
+      || matchedComp?._buildingApiId
+      || null;
+    if(!buildingApiId) return;
+    setCompBuildingLoading(true);
+    getBuilding(buildingApiId).then(raw=>{
+      setCompBuildingData(prev=>({...prev,[activeComp]:raw}));
+    }).catch(err=>{
+      console.warn("[REopt] Comp building fetch failed:",err);
+    }).finally(()=>{
+      setCompBuildingLoading(false);
+    });
+  },[activeComp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Note helpers ── */
   const getNote=(tourId,compId)=>notes[tourId]?.[compId]??"";
@@ -2253,6 +2403,8 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
       toast("Comment added");
     };
 
+    const compBldg = compBuildingData[comp.id] || null; // building from GET /buildings/{id}
+
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",background:"#000",animation:"slideR .28s ease",position:"relative"}}>
         {/* Hidden file inputs for quick capture */}
@@ -2322,42 +2474,62 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           {/* ══ BUILDING INFO ══ */}
           {compTab==="building" && (
             <div>
+              {compBuildingLoading && (
+                <div style={{textAlign:"center",padding:"8px 0 4px",color:iOS.label3,fontSize:13}}>
+                  Loading building details…
+                </div>
+              )}
               <Section header="Overview">
                 {[
-                  {l:"Address",        v:comp.addr},
-                  {l:"Square Footage", v:comp.sqft.toLocaleString()+" sqft"},
-                  {l:"Clear Height",   v:comp.ch+"'"},
-                  {l:"Asking Rent",    v:`$${comp.rent}/sqft`},
-                ].map((d,i,arr)=>(
+                  {l:"Address",          v:comp.addr||compBldg?.address},
+                  (compBldg?.total_square_footage||comp.sqft)
+                    ? {l:"Square Footage", v:Number(compBldg?.total_square_footage||comp.sqft).toLocaleString()+" sqft"} : null,
+                  (compBldg?.building_type||comp.buildingType)
+                    ? {l:"Building Type",  v:compBldg?.building_type||comp.buildingType} : null,
+                  compBldg?.year_built    ? {l:"Year Built",     v:compBldg.year_built}    : null,
+                  compBldg?.number_of_floors ? {l:"Floors",      v:compBldg.number_of_floors} : null,
+                  compBldg?.parking_ratio ? {l:"Parking Ratio",  v:compBldg.parking_ratio}  : null,
+                  compBldg?.zoning        ? {l:"Zoning",         v:compBldg.zoning}          : null,
+                  compBldg?.class         ? {l:"Class",          v:compBldg.class}            : null,
+                  comp.rent               ? {l:"Asking Rent",    v:`$${comp.rent}/sqft`}      : null,
+                ].filter(d=>d&&d.v).map((d,i,arr)=>(
                   <ListRow key={d.l} title={d.l}
                     right={<span style={{...T.subhead,color:iOS.label2,maxWidth:160,textAlign:"right",
                       whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.v}</span>}
                     showChevron={false} last={i===arr.length-1}/>
                 ))}
               </Section>
-              <Section header="Specifications">
-                {[
-                  {icon:"door",    label:"Dock Doors",      val:"18"},
-                  {icon:"car",     label:"Drive-In Doors",   val:"2"},
-                  {icon:"bolt",    label:"Power",             val:"1,200A / 480V"},
-                  {icon:"fire",    label:"Fire Suppression",  val:"ESFR"},
-                  {icon:"truck",   label:"Truck Court",       val:"130 ft"},
-                  {icon:"grid",    label:"Column Spacing",    val:"50' × 48'"},
-                ].map((d,i,arr)=>(
-                  <ListRow key={d.label}
-                    left={<div style={{width:32,height:32,borderRadius:8,background:iOS.bg3,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <Icon name={d.icon} size={16} color={iOS.label2}/>
-                    </div>}
-                    title={d.label}
-                    right={<span style={{...T.subhead,color:iOS.label2}}>{d.val}</span>}
-                    showChevron={false} last={i===arr.length-1}/>
-                ))}
-              </Section>
+
+              {/* Building description from API */}
+              {compBldg?.description && (
+                <Section header="Description">
+                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.6}}>
+                    {compBldg.description}
+                  </div>
+                </Section>
+              )}
+
+              {/* Building name if different from display name */}
+              {compBldg?.building_name && compBldg.building_name !== comp.name && (
+                <Section header="Full Building Name">
+                  <div style={{padding:"12px 16px",color:iOS.label2,...T.subhead,lineHeight:1.5}}>
+                    {compBldg.building_name}
+                  </div>
+                </Section>
+              )}
+
               <Section header="Location">
-                <ListRow title="Open in Maps" subtitle={comp.addr}
-                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(comp.addr)}`,"_blank")}
+                <ListRow title="Open in Maps" subtitle={comp.addr||compBldg?.address}
+                  onPress={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(comp.addr||compBldg?.address||comp.name)}`,"_blank")}
                   left={<IconBox name="map" color={iOS.blue}/>}
-                  last/>
+                  last={!(compBldg?.latitude)}/>
+                {compBldg?.latitude && (
+                  <ListRow title="Coordinates"
+                    right={<span style={{...T.caption,color:iOS.label2,fontVariantNumeric:"tabular-nums"}}>
+                      {compBldg.latitude.toFixed(5)}, {compBldg.longitude.toFixed(5)}
+                    </span>}
+                    showChevron={false} last/>
+                )}
               </Section>
             </div>
           )}
