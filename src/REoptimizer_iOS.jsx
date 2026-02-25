@@ -821,7 +821,8 @@ function Dashboard({user, setTab, sites, projects, tours, comps, dashData}) {
   // Recent sites from dashboard or fallback
   const recentSites = dashData?.sites?.length ? dashData.sites : sites.slice(0, 5).map(s => ({
     id: s.id,
-    name: s.name,
+    addrLine: s.addr?.split(",")[0] || s.name,
+    cityState: s.addr?.split(",").slice(1).join(",").trim() || null,
     addr: s.addr,
   }));
 
@@ -866,8 +867,8 @@ function Dashboard({user, setTab, sites, projects, tours, comps, dashData}) {
             {recentSites.map((s, i) => (
               <ListRow key={s.id}
                 left={<IconBox name="building" color={iOS.teal}/>}
-                title={s.name || s.addr}
-                subtitle={s.addr !== s.name ? s.addr : ""}
+                title={s.addrLine || s.addr}
+                subtitle={s.cityState || null}
                 onPress={() => setTab("sites")}
                 last={i === recentSites.length - 1}/>
             ))}

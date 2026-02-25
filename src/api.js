@@ -837,7 +837,8 @@ export function normalizeDashboard(apiDash) {
     })),
     sites: (apiDash.sites || []).map(s => ({
       id: String(s.id),
-      name: s.name || s.address || `Site ${s.id}`,
+      addrLine: s.address || `Site ${s.id}`,
+      cityState: [s.city, s.state].filter(Boolean).join(", "),
       addr: [s.address, s.city, s.state].filter(Boolean).join(", "),
     })),
   };
