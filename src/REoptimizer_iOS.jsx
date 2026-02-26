@@ -3,6 +3,7 @@ import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
   getSites, getSite, getBuilding, getProjects, getProject, getComps, getTours, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
+  getTourKSDs, getTourMedia, uploadTourMedia, deleteTourMedia,
   normalizeSite, normalizeBuilding, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
 } from "./api.js";
 import {
@@ -147,7 +148,9 @@ const KSD = [
   {id:"tr",label:"Tax Rates",       icon:"doc"     },
 ];
 const W = {ch:20,pc:20,hp:20,la:15,ur:15,tr:10};
-const calcIPS = s => KSD.reduce((a,k) => a+((W[k.id]/100)*(s[k.id]??0)), 0);
+// calcIPS: scores stored as 1-5 stars; multiply by 2 so the result stays on 0-10 scale.
+// Legacy seed scores (0-10 range) will display slightly high — acceptable since the UI is now stars.
+const calcIPS = s => KSD.reduce((a,k) => a+((W[k.id]/100)*((s[k.id]??0)*2)), 0);
 
 const STAGE_COLOR = {
   "Letter of Intent": iOS.teal,
@@ -2219,6 +2222,36 @@ function CompSubNav({tab, setTab}) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   STAR RATING — 1-5 gold stars for KSD scoring
+═══════════════════════════════════════════════════════ */
+function StarRating({value, onChange, max=5, size=26, readOnly=false, label}) {
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:4}}>
+      {Array.from({length:max}, (_, i) => i+1).map(star => (
+        <button
+          key={star}
+          disabled={readOnly}
+          onClick={readOnly ? undefined : () => onChange(star === value ? 0 : star)}
+          style={{
+            background:"none", border:"none",
+            cursor: readOnly ? "default" : "pointer",
+            padding:"2px 1px", lineHeight:1,
+            fontSize: size,
+            color: star <= value ? iOS.yellow : iOS.fill2,
+            transition: "color .12s, transform .1s",
+            transform: !readOnly && star === value ? "scale(1.15)" : "scale(1)",
+          }}
+          aria-label={`${star} star${star!==1?"s":""}`}
+        >★</button>
+      ))}
+      {label && (
+        <span style={{fontSize:12, color:iOS.label3, marginLeft:4}}>{label}</span>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
    TOUR SUB-NAV (segmented control)
 ═══════════════════════════════════════════════════════ */
 function TourSubNav({tab, setTab}) {
@@ -2284,54 +2317,89 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   });
   // notes[tourId][compId] = "text"
   const [notes,setNotes]=useState({});
-  // media[tourId][compId] = [{id,type,url,name,size}]
+  // media[tourId][compId] = [{id,type,url,name,size,_apiId}]
   const [media,setMedia]=useState({});
+  const [mediaLoading,setMediaLoading]=useState(false);
   const [syncing,setSyncing]=useState(false);
   // Sub-nav tab for tour detail view ("map"|"properties"|"people"|"scores")
   const [tourTab,setTourTab]=useState("properties");
   // Sub-nav tab for individual comp/property view
   const [compTab,setCompTab]=useState("scoring");
-  // Quick-capture file inputs (comment sheet + photo + video)
+  // Quick-capture file inputs (comment sheet + photo + video + audio)
   const [commentSheet,setCommentSheet]=useState(false);
   const [commentText,setCommentText]=useState("");
   const quickPhotoRef=useRef(null);
   const quickVideoRef=useRef(null);
-  // building data cache: compBuildingData[compId] = raw building obj from GET /buildings/{id}
+  const quickAudioRef=useRef(null);
+  // Voice memo recording state
+  const [isRecording,setIsRecording]=useState(false);
+  const mediaRecorderRef=useRef(null);
+  const audioChunksRef=useRef([]);
+  // building data cache: compBuildingData[compId] = normalizeBuilding result
   const [compBuildingData,setCompBuildingData]=useState({});
   const [compBuildingLoading,setCompBuildingLoading]=useState(false);
+  // Tour KSDs: { [tourId]: [{id, driver, description, category, default_weight}] }
+  const [tourKSDs,setTourKSDs]=useState({});
+
   // Reset tabs when navigating
   useEffect(()=>{ setTourTab("properties"); },[activeTour]);
   useEffect(()=>{ setCompTab("scoring"); },[activeComp]);
 
-  // Fetch building detail when a comp is opened in the tour
+  // Fetch KSDs from API when a tour is opened
+  useEffect(()=>{
+    if(!activeTour) return;
+    if(tourKSDs[activeTour]) return; // already cached
+    const t=tours.find(x=>x.id===activeTour);
+    if(!t) return;
+    const tourApiId=t._apiId||parseInt(t.id)||t.id;
+    getTourKSDs(tourApiId).then(ksds=>{
+      if(ksds?.length) setTourKSDs(prev=>({...prev,[activeTour]:ksds}));
+    }).catch(err=>console.warn("[REopt] KSD fetch failed:",err));
+  },[activeTour,tours]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch building detail when a comp is opened
   useEffect(()=>{
     if(!activeComp) return;
     if(compBuildingData[activeComp]) return; // already cached
-    const tour=tours.find(t=>t.id===activeTour);
-    if(!tour) return;
-    // Find the comp — could be in global comps or from tour schedule (_fromSchedule)
-    const tCompsAll = tour.schedule?.length
-      ? tour.schedule.filter(s=>s.slotType==="comp"&&s.building).map(s=>({
-          id: String(s.building.id),
-          _buildingApiId: s.building.id,
-        }))
-      : comps.filter(c=>tour.comps.includes(c.id));
-    const matchedComp = tCompsAll.find(c=>c.id===activeComp);
-    // Prefer building._apiId from the comp itself
-    const globalComp = comps.find(c=>c.id===activeComp);
-    const buildingApiId = globalComp?._raw?.building?.id
-      || matchedComp?._buildingApiId
-      || null;
+    const t=tours.find(x=>x.id===activeTour);
+    if(!t) return;
+    // Find building API id from the schedule slot
+    const slot=(t.schedule||[]).find(s=>s.slotType==="comp"&&s.building&&String(s.building.id)===String(activeComp));
+    const buildingApiId=slot?.building?.id||null;
     if(!buildingApiId) return;
     setCompBuildingLoading(true);
     getBuilding(buildingApiId).then(raw=>{
       setCompBuildingData(prev=>({...prev,[activeComp]:normalizeBuilding(raw)}));
-    }).catch(err=>{
-      console.warn("[REopt] Comp building fetch failed:",err);
-    }).finally(()=>{
-      setCompBuildingLoading(false);
-    });
+    }).catch(err=>console.warn("[REopt] Comp building fetch failed:",err))
+      .finally(()=>setCompBuildingLoading(false));
   },[activeComp]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch existing media from API when a comp is opened
+  useEffect(()=>{
+    if(!activeComp||!activeTour) return;
+    const t=tours.find(x=>x.id===activeTour);
+    if(!t) return;
+    const tourApiId=t._apiId||parseInt(t.id)||t.id;
+    const slotId=t.compSlotMap?.[String(activeComp)]||null;
+    const params=slotId ? {tour_comp_id:slotId} : {};
+    setMediaLoading(true);
+    getTourMedia(tourApiId,params).then(items=>{
+      const normalized=(items||[]).map(m=>({
+        id:String(m.id),
+        _apiId:m.id,
+        type:m.type==="photo"?"image":m.type,
+        url:m.url||m.file_url||"",
+        name:m.caption||m.filename||`Media ${m.id}`,
+        size:m.file_size||0,
+        caption:m.caption||"",
+      }));
+      setMedia(prev=>({
+        ...prev,
+        [activeTour]:{...(prev[activeTour]||{}),[activeComp]:normalized}
+      }));
+    }).catch(err=>console.warn("[REopt] Media fetch failed:",err))
+      .finally(()=>setMediaLoading(false));
+  },[activeComp,activeTour]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Note helpers ── */
   const getNote=(tourId,compId)=>notes[tourId]?.[compId]??"";
@@ -2347,12 +2415,55 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
       [compId]:[...(prev[tourId]?.[compId]??[]),...items]
     }
   }));
-  const removeMedia=(tourId,compId,itemId)=>setMedia(prev=>({
-    ...prev,[tourId]:{
-      ...(prev[tourId]??{}),
-      [compId]:(prev[tourId]?.[compId]??[]).filter(m=>m.id!==itemId)
+  const removeMedia=(tourId,compId,itemId)=>{
+    // Remove locally
+    setMedia(prev=>({
+      ...prev,[tourId]:{
+        ...(prev[tourId]??{}),
+        [compId]:(prev[tourId]?.[compId]??[]).filter(m=>m.id!==itemId)
+      }
+    }));
+    // Delete from API if it has an API id
+    const item=(media[tourId]?.[compId]??[]).find(m=>m.id===itemId);
+    if(item?._apiId){
+      const t=tours.find(x=>x.id===tourId);
+      const tourApiId=t?._apiId||parseInt(t?.id)||tourId;
+      deleteTourMedia(tourApiId,item._apiId).catch(err=>console.warn("[REopt] Media delete failed:",err));
     }
-  }));
+  };
+
+  /* ── Upload helper: POST multipart to API, replace local placeholder ── */
+  const uploadMediaToApi=async(tourId,compId,placeholderId,file,type,slotId)=>{
+    const t=tours.find(x=>x.id===tourId);
+    if(!t) return;
+    const tourApiId=t._apiId||parseInt(t.id)||t.id;
+    try{
+      const result=await uploadTourMedia(tourApiId,{
+        type,file,
+        tour_comp_id:slotId||undefined,
+      });
+      if(result?.id){
+        // Replace placeholder with real API item
+        setMedia(prev=>{
+          const list=(prev[tourId]?.[compId]??[]).map(m=>m.id===placeholderId?{
+            ...m,id:String(result.id),_apiId:result.id,
+            url:result.url||result.file_url||m.url,
+          }:m);
+          return {...prev,[tourId]:{...(prev[tourId]??{}),[compId]:list}};
+        });
+      }
+    }catch(err){
+      console.warn("[REopt] Media upload failed:",err);
+      // Remove placeholder on failure
+      setMedia(prev=>({
+        ...prev,[tourId]:{
+          ...(prev[tourId]??{}),
+          [compId]:(prev[tourId]?.[compId]??[]).filter(m=>m.id!==placeholderId)
+        }
+      }));
+      toast("Upload failed");
+    }
+  };
 
   /* ── API Sync: submit all pending scores for current tour ── */
   const doSync = async () => {
@@ -2361,44 +2472,48 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
     const tour = tours.find(t => t.id === activeTour);
     if (!tour) { setSyncing(false); return; }
 
-    const tourApiId = tour._apiId || tour.id;
-    const tComps = comps.filter(c => tour.comps.includes(c.id));
+    const tourApiId = tour._apiId || parseInt(tour.id) || tour.id;
+    // Get all comp slots from the tour schedule for correct slot IDs
+    const compSlots = (tour.schedule || []).filter(s => s.slotType === "comp" && s.building);
     const errors = [];
+
+    // Build KSD id mapping: local KSD index → API ksd_id
+    const apiKSDs = tourKSDs[activeTour] || [];
 
     // For attendees: submit per-comp scores using the real API
     if (user.user_type === "attendee" && user.attendee?.can_score) {
       const attendeeId = String(user.attendee.id ?? user.id);
-      for (const comp of tComps) {
-        const compApiId = comp._apiId || comp.id;
-        const myScores = scores[activeTour]?.[attendeeId]?.[comp.id];
+      for (const slot of compSlots) {
+        const compBuildingId = String(slot.building.id);
+        const slotId = String(slot.id); // this is the tour_comp_id for the API
+        const myScores = scores[activeTour]?.[attendeeId]?.[compBuildingId];
         if (!myScores) continue;
 
-        // Convert KSD key→score map to API format [{ ksd_id, score }]
-        // The KSD objects in our local array use string ids like "ch","pc" etc.
-        // The API expects integer ksd_id — we'll pass the index+1 as a fallback
-        // if no real ksd_id is stored on the KSD object.
-        const ksdScores = KSD.map((k, idx) => ({
-          ksd_id: k._apiId ?? (idx + 1),
-          score: myScores[k.id] ?? 0,
-        }));
+        // Map KSD local keys → API ksd_id + normalize star value to 0-100
+        const ksdScores = KSD.map((k, idx) => {
+          const apiKsd = apiKSDs[idx];
+          return {
+            ksd_id: apiKsd?.id ?? (idx + 1),
+            score: Math.round(((myScores[k.id] ?? 0) / 5) * 100),
+          };
+        });
 
-        const noteText = notes[activeTour]?.[comp.id] ?? "";
+        const noteText = notes[activeTour]?.[compBuildingId] ?? "";
         try {
-          await submitCompScores(tourApiId, compApiId, ksdScores, noteText);
+          await submitCompScores(tourApiId, slotId, ksdScores, noteText);
         } catch (e) {
-          console.warn(`[REopt] Score submit failed for comp ${compApiId}:`, e.message);
-          errors.push(comp.name);
+          console.warn(`[REopt] Score submit failed for slot ${slotId}:`, e.message);
+          errors.push(slot.building.name || compBuildingId);
         }
       }
     } else {
-      // Broker / non-scoring user: just log the payload locally
-      const payload = {
+      // Broker / non-scoring user: log payload
+      console.log("[REopt] Sync payload:", {
         syncedAt: new Date().toISOString(),
         tourId: tourApiId,
         scores: scores[activeTour] ?? {},
         notes: notes[activeTour] ?? {},
-      };
-      console.log("[REopt] Sync payload:", payload);
+      });
     }
 
     setSyncing(false);
@@ -2431,54 +2546,156 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
     setNewSheet(false); setNtForm({name:"",pid:"",date:"",comps:[],times:{}}); toast("Tour created");
   };
 
-  const tour=tours.find(t=>t.id===activeTour);
-  const comp=tour?comps.find(c=>c.id===activeComp):null;
+  // ── Resolve active tour and compute tComps at top level ──
+  // (needed for both comp detail view and tour detail view)
+  const tour = tours.find(t => t.id === activeTour);
+  const scheduleCompSlots = (tour?.schedule || []).filter(s => s.slotType === "comp" && s.building);
+  const tComps = scheduleCompSlots.length > 0
+    ? scheduleCompSlots.map(slot => {
+        const matched = comps.find(c => String(c._raw?.building?.id) === String(slot.building.id));
+        return {
+          id:           String(slot.building.id),  // building id — used as comp key
+          slotId:       String(slot.id),            // schedule slot id — used for API calls
+          _apiId:       slot.building.id,
+          name:         matched?.name || slot.building.name || slot.building.addr || `Building ${slot.building.id}`,
+          addr:         matched?.addr || slot.building.addr || "",
+          lat:          matched?.lat  || slot.building.lat  || null,
+          lng:          matched?.lng  || slot.building.lng  || null,
+          sqft:         matched?.sqft || 0,
+          rent:         matched?.rent || null,
+          buildingType: matched?.buildingType || "",
+          scores:       matched?.scores || { ch:0, pc:0, hp:0, la:0, ur:0, tr:0 },
+          score:        matched?.score  || 0,
+          _raw:         matched?._raw   || null,
+          _fromSchedule:!matched,
+        };
+      })
+    : comps.filter(c => tour?.comps?.includes(c.id));
+
+  // Find active comp from tComps (not global comps — IDs are building IDs, not comp record IDs)
+  const comp = tour ? tComps.find(c => c.id === activeComp) : null;
 
   /* ── Property detail view (inside a tour) ── */
   if(comp&&tour){
-    const myTC=tour.contacts[0];
-    const myS=myTC?(scores[tour.id]?.[myTC.id]?.[comp.id]??{}):{};
-    const live=calcIPS(myS);
-    const col=live>=7.5?iOS.green:live>=5?iOS.orange:iOS.red;
-    const compMedia=getMedia(tour.id,comp.id);
+    // Find current user's contact entry in tour
+    const myContactId = String(user.attendee?.id ?? user.id);
+    const myTC = tour.contacts.find(tc => String(tc.id) === myContactId) || tour.contacts[0];
+    const myS = myTC ? (scores[tour.id]?.[String(myTC.id)]?.[comp.id] ?? {}) : {};
+    const live = calcIPS(myS);
+    const col = live>=7.5 ? iOS.green : live>=5 ? iOS.orange : iOS.red;
+    const compMedia = getMedia(tour.id,comp.id);
     // times keyed by building ID (real API) or comp ID (seed fallback)
     const apptTime = tour.times?.[String(comp._apiId ?? comp.id)]
                   || tour.times?.[comp.id];
+    // Schedule slot ID for API media/score calls
+    const slotId = comp.slotId || tour.compSlotMap?.[String(comp.id)] || null;
 
-    const handleQuickPhoto=e=>{
-      const files=Array.from(e.target.files);
-      if(!files.length)return;
-      addMedia(tour.id,comp.id,files.map(f=>({
-        id:"m"+Date.now()+Math.random().toString(36).slice(2),
-        type:f.type.startsWith("video/")?"video":"image",
-        url:URL.createObjectURL(f),name:f.name,size:f.size,
-      })));
-      e.target.value="";
+    const handleQuickPhoto = e => {
+      const files = Array.from(e.target.files);
+      if(!files.length) return;
+      files.forEach(f => {
+        const pid = "m"+Date.now()+Math.random().toString(36).slice(2);
+        const mediaType = f.type.startsWith("video/") ? "video" : "photo";
+        // Add local preview immediately
+        addMedia(tour.id, comp.id, [{
+          id: pid, _apiId: null,
+          type: mediaType==="video" ? "video" : "image",
+          url: URL.createObjectURL(f), name: f.name, size: f.size,
+        }]);
+        // Upload to API
+        uploadMediaToApi(tour.id, comp.id, pid, f, mediaType, slotId);
+      });
+      e.target.value = "";
       setCompTab("photos");
-      toast("Photo added");
+      toast("Uploading…");
     };
-    const handleQuickVideo=e=>{
-      const files=Array.from(e.target.files);
-      if(!files.length)return;
-      addMedia(tour.id,comp.id,files.map(f=>({
-        id:"m"+Date.now()+Math.random().toString(36).slice(2),
-        type:"video",
-        url:URL.createObjectURL(f),name:f.name,size:f.size,
-      })));
-      e.target.value="";
+
+    const handleQuickVideo = e => {
+      const files = Array.from(e.target.files);
+      if(!files.length) return;
+      files.forEach(f => {
+        const pid = "m"+Date.now()+Math.random().toString(36).slice(2);
+        addMedia(tour.id, comp.id, [{
+          id: pid, _apiId: null,
+          type: "video",
+          url: URL.createObjectURL(f), name: f.name, size: f.size,
+        }]);
+        uploadMediaToApi(tour.id, comp.id, pid, f, "video", slotId);
+      });
+      e.target.value = "";
       setCompTab("photos");
-      toast("Video added");
+      toast("Uploading video…");
     };
-    const submitComment=()=>{
-      if(!commentText.trim())return;
-      setNote(tour.id,comp.id,
-        (getNote(tour.id,comp.id)?getNote(tour.id,comp.id)+"\n\n":"")
-        +"— "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})
-        +"\n"+commentText.trim()
+
+    const handleQuickAudio = e => {
+      const files = Array.from(e.target.files);
+      if(!files.length) return;
+      files.forEach(f => {
+        const pid = "m"+Date.now()+Math.random().toString(36).slice(2);
+        addMedia(tour.id, comp.id, [{
+          id: pid, _apiId: null,
+          type: "audio",
+          url: URL.createObjectURL(f), name: f.name||"voice-memo.webm", size: f.size,
+        }]);
+        uploadMediaToApi(tour.id, comp.id, pid, f, "audio", slotId);
+      });
+      e.target.value = "";
+      setCompTab("photos");
+      toast("Voice memo uploading…");
+    };
+
+    const startVoiceRecording = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        const mr = new MediaRecorder(stream, {mimeType:"audio/webm"});
+        audioChunksRef.current = [];
+        mr.ondataavailable = e => { if(e.data.size>0) audioChunksRef.current.push(e.data); };
+        mr.onstop = () => {
+          stream.getTracks().forEach(t=>t.stop());
+          const blob = new Blob(audioChunksRef.current, {type:"audio/webm"});
+          const file = new File([blob], "voice-memo.webm", {type:"audio/webm"});
+          const pid = "m"+Date.now()+Math.random().toString(36).slice(2);
+          addMedia(tour.id, comp.id, [{
+            id:pid, _apiId:null, type:"audio",
+            url:URL.createObjectURL(blob), name:"Voice Memo", size:blob.size,
+          }]);
+          uploadMediaToApi(tour.id, comp.id, pid, file, "audio", slotId);
+          setCompTab("photos");
+          toast("Voice memo saved");
+        };
+        mr.start();
+        mediaRecorderRef.current = mr;
+        setIsRecording(true);
+      } catch(err) {
+        console.warn("[REopt] Mic error:",err);
+        // Fallback: use file input
+        quickAudioRef.current?.click();
+      }
+    };
+
+    const stopVoiceRecording = () => {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+    };
+
+    const submitComment = async () => {
+      if(!commentText.trim()) return;
+      const text = commentText.trim();
+      const timestamp = "— "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+      setNote(tour.id, comp.id,
+        (getNote(tour.id,comp.id) ? getNote(tour.id,comp.id)+"\n\n" : "")
+        + timestamp + "\n" + text
       );
       setCommentText("");
       setCommentSheet(false);
       toast("Comment added");
+      // Also upload note to API
+      if(slotId) {
+        const t = tours.find(x=>x.id===tour.id);
+        const tourApiId = t?._apiId || parseInt(t?.id) || tour.id;
+        uploadTourMedia(tourApiId, {type:"note", content:text, tour_comp_id:slotId})
+          .catch(err=>console.warn("[REopt] Note upload failed:",err));
+      }
     };
 
     const compBldg = compBuildingData[comp.id] || null; // building from GET /buildings/{id}
@@ -2490,6 +2707,8 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           style={{display:"none"}} onChange={handleQuickPhoto}/>
         <input ref={quickVideoRef} type="file" accept="video/*" multiple
           style={{display:"none"}} onChange={handleQuickVideo}/>
+        <input ref={quickAudioRef} type="file" accept="audio/*" capture="microphone"
+          style={{display:"none"}} onChange={handleQuickAudio}/>
 
         {/* NavBar */}
         <NavBar title={comp.name} onBack={()=>setActiveComp(null)} backLabel="Properties"
@@ -2506,45 +2725,55 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
         {/* Scrollable content — paddingBottom leaves room for sticky bar */}
         <div style={{flex:1,overflowY:"auto",padding:"12px 14px 96px"}}>
 
-          {/* ══ PHOTOS ══ */}
+          {/* ══ PHOTOS / MEDIA ══ */}
           {compTab==="photos" && (
             <div>
+              {mediaLoading && (
+                <div style={{textAlign:"center",padding:"8px 0 4px",color:iOS.label3,fontSize:13}}>Loading media…</div>
+              )}
               {compMedia.length>0 ? (
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
                   {compMedia.map(item=>(
                     <div key={item.id} style={{position:"relative",aspectRatio:"1",borderRadius:10,overflow:"hidden",background:iOS.bg3}}>
                       {item.type==="image"
-                        ?<img src={item.url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                        :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",
-                            justifyContent:"center",background:iOS.bg4}}>
-                            <span style={{fontSize:24,opacity:.8}}>▶</span>
+                        ? <img src={item.url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",
+                              justifyContent:"center",background:iOS.bg4,flexDirection:"column",gap:4}}>
+                            <span style={{fontSize:item.type==="audio"?28:24,opacity:.8}}>
+                              {item.type==="audio"?"🎙️":"▶"}
+                            </span>
+                            {item._apiId==null && (
+                              <span style={{fontSize:9,color:iOS.label3}}>Uploading…</span>
+                            )}
                           </div>
                       }
                       <button onClick={()=>removeMedia(tour.id,comp.id,item.id)}
                         style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:"50%",
                           background:"rgba(0,0,0,0.72)",border:"none",color:"#fff",fontSize:13,
                           cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
-                      {item.type==="video"&&(
+                      {(item.type==="video"||item.type==="audio")&&(
                         <div style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,0.62)",
-                          borderRadius:4,padding:"2px 5px",fontSize:9,color:"#fff",fontWeight:700}}>VIDEO</div>
+                          borderRadius:4,padding:"2px 5px",fontSize:9,color:"#fff",fontWeight:700,textTransform:"uppercase"}}>
+                          {item.type}
+                        </div>
                       )}
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : !mediaLoading && (
                 <div style={{background:iOS.bg2,borderRadius:14,padding:48,textAlign:"center",
                   marginBottom:16,border:`1px dashed ${iOS.separator}`}}>
                   <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
                     <Icon name="camera" size={40} color={iOS.label3}/>
                   </div>
-                  <div style={{...T.headline,marginBottom:6}}>No Photos Yet</div>
+                  <div style={{...T.headline,marginBottom:6}}>No Media Yet</div>
                   <div style={{...T.footnote,color:iOS.label2}}>
-                    Use the buttons below to add photos or video
+                    Use the buttons below to add photos, video, or voice memos
                   </div>
                 </div>
               )}
               <IOSBtn variant="tinted" color={iOS.teal} full onPress={()=>quickPhotoRef.current?.click()}>
-                {compMedia.length>0?`${compMedia.length} file${compMedia.length>1?"s":""} · Add More`:"Add Photos & Videos"}
+                {compMedia.length>0?`${compMedia.length} item${compMedia.length>1?"s":""} · Add More`:"Add Photos & Videos"}
               </IOSBtn>
             </div>
           )}
@@ -2738,7 +2967,8 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                   {live.toFixed(2)}
                 </div>
                 <div style={{...T.footnote,color:iOS.label3,marginBottom:12}}>
-                  {comp.sqft.toLocaleString()} sqft · ${comp.rent}/sqft
+                  {comp.sqft ? Number(comp.sqft).toLocaleString()+" sqft" : "—"}
+                  {comp.rent ? ` · $${comp.rent}/sqft` : ""}
                 </div>
                 {/* Mini progress bar */}
                 <div style={{height:6,borderRadius:3,background:iOS.bg4,overflow:"hidden"}}>
@@ -2746,30 +2976,44 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                 </div>
               </div>
 
-              {/* KSD Sliders */}
+              {/* KSD Star Ratings */}
               <Section header="KSD Ratings">
                 <div style={{padding:"8px 16px"}}>
                   {KSD.map((k,i)=>{
-                    const val=myS[k.id]??0;
-                    const c=val>=7?iOS.green:val>=4?iOS.orange:iOS.red;
+                    const stars = myS[k.id] ?? 0;
+                    // Normalize: stars (0-5) × 2 = internal 0-10 value for contribution
+                    const internalVal = stars * 2;
+                    const contribution = (W[k.id]/100) * internalVal;
+                    const starColor = stars>=4 ? iOS.green : stars>=2 ? iOS.orange : stars>0 ? iOS.red : iOS.label4;
                     return (
-                      <div key={k.id} style={{marginBottom:i<KSD.length-1?20:8}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                      <div key={k.id} style={{
+                        marginBottom: i<KSD.length-1 ? 16 : 8,
+                        paddingBottom: i<KSD.length-1 ? 16 : 0,
+                        borderBottom: i<KSD.length-1 ? `0.5px solid ${iOS.separator}` : "none",
+                      }}>
+                        {/* Label row */}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                           <span style={{...T.subhead,display:"flex",alignItems:"center",gap:6}}>
                             <Icon name={k.icon} size={14} color={iOS.label2}/>{k.label}
                           </span>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{...T.caption,color:iOS.label3}}>Wt:{W[k.id]}%</span>
-                            <span style={{fontSize:18,fontWeight:700,color:c,minWidth:24,textAlign:"right"}}>{val}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{...T.caption2,color:iOS.label3}}>Wt: {W[k.id]}%</span>
+                            <span style={{...T.caption2,color:starColor,fontWeight:600}}>
+                              {stars>0 ? `+${contribution.toFixed(2)}` : "—"}
+                            </span>
                           </div>
                         </div>
-                        <input type="range" value={val} min={0} max={10}
-                          onChange={e=>myTC&&setScore(tour.id,myTC.id,comp.id,k.id,+e.target.value)}
-                          style={{accentColor:c}}/>
+                        {/* Star rating input */}
+                        <StarRating
+                          value={stars}
+                          onChange={v => myTC && setScore(tour.id, String(myTC.id), comp.id, k.id, v)}
+                          size={28}
+                          readOnly={!myTC}
+                        />
+                        {/* Helper labels */}
                         <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                          <span style={{...T.caption2}}>Low</span>
-                          <span style={{...T.caption2}}>Contribution: {((W[k.id]/100)*val).toFixed(2)}</span>
-                          <span style={{...T.caption2}}>High</span>
+                          <span style={{...T.caption2,color:iOS.label4}}>1 = Poor</span>
+                          <span style={{...T.caption2,color:iOS.label4}}>5 = Excellent</span>
                         </div>
                       </div>
                     );
@@ -2812,7 +3056,7 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           background:`${iOS.bg2}f0`, backdropFilter:"blur(20px)",
           borderTop:`0.5px solid ${iOS.separator}`,
           padding:"10px 16px 16px",
-          display:"flex", gap:10,
+          display:"flex", gap:8,
         }}>
           {[
             {label:"Comment", icon:"speech", color:iOS.blue,   onClick:()=>{setCommentText("");setCommentSheet(true);}},
@@ -2821,18 +3065,47 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           ].map(b=>(
             <button key={b.label} className="pressable" onClick={b.onClick}
               style={{
-                flex:1, padding:"10px 8px", border:"none", borderRadius:12,
-                background:iOS.bg3, color:iOS.label, fontSize:12, fontWeight:600,
+                flex:1, padding:"9px 4px", border:"none", borderRadius:12,
+                background:iOS.bg3, color:iOS.label, fontSize:11, fontWeight:600,
                 cursor:"pointer", display:"flex", flexDirection:"column",
-                alignItems:"center", gap:5,
+                alignItems:"center", gap:4,
               }}>
-              <div style={{width:32,height:32,borderRadius:10,background:`${b.color}20`,
+              <div style={{width:30,height:30,borderRadius:9,background:`${b.color}20`,
                 display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <Icon name={b.icon} size={16} color={b.color}/>
+                <Icon name={b.icon} size={15} color={b.color}/>
               </div>
               <span style={{color:iOS.label2}}>{b.label}</span>
             </button>
           ))}
+          {/* Voice Memo — press to record, press again to stop */}
+          <button className="pressable"
+            onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+            style={{
+              flex:1, padding:"9px 4px", border:"none", borderRadius:12,
+              background: isRecording ? `${iOS.red}22` : iOS.bg3,
+              color:iOS.label, fontSize:11, fontWeight:600,
+              cursor:"pointer", display:"flex", flexDirection:"column",
+              alignItems:"center", gap:4,
+              border: isRecording ? `1px solid ${iOS.red}66` : "1px solid transparent",
+            }}>
+            <div style={{width:30,height:30,borderRadius:9,
+              background: isRecording ? `${iOS.red}33` : `${iOS.orange}20`,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              position:"relative",
+            }}>
+              <span style={{fontSize:15}}>{isRecording?"⏹":"🎙️"}</span>
+              {isRecording && (
+                <span style={{
+                  position:"absolute",top:-3,right:-3,width:8,height:8,
+                  borderRadius:"50%",background:iOS.red,
+                  animation:"spin 1s ease-in-out infinite",
+                }}/>
+              )}
+            </div>
+            <span style={{color: isRecording ? iOS.red : iOS.label2}}>
+              {isRecording?"Stop":"Voice"}
+            </span>
+          </button>
         </div>
 
         {/* Comment sheet */}
@@ -2857,44 +3130,16 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
 
   /* ── Tour detail ── */
   if(tour){
-    // Build tComps from the tour's schedule comp slots (real API data)
-    // then augment with matching comp records from global comps state if found.
-    // tour.schedule = allSlots with slotType, building data
-    // tour.comps = building IDs (strings) from comp-type schedule slots
-    const scheduleCompSlots = (tour.schedule || []).filter(s => s.slotType === "comp" && s.building);
-
-    // Try to find matching comp records by building ID
-    const tComps = scheduleCompSlots.length > 0
-      ? scheduleCompSlots.map(slot => {
-          // Find a comp whose building matches this slot's building
-          const matched = comps.find(c =>
-            String(c._raw?.building?.id) === String(slot.building.id)
-          );
-          if (matched) return matched;
-          // Fallback: create a minimal comp-like object from the schedule slot
-          return {
-            id: slot.building.id,              // use building ID as comp ID
-            _apiId: slot.building.id,
-            name: slot.building.name || slot.building.addr || `Building ${slot.building.id}`,
-            addr: slot.building.addr || "",
-            lat: slot.building.lat,
-            lng: slot.building.lng,
-            sqft: 0,
-            rent: 0,
-            buildingType: "",
-            scores: { ch:0, pc:0, hp:0, la:0, ur:0, tr:0 },
-            score: 0,
-            _fromSchedule: true,
-          };
-        })
-      : comps.filter(c => tour.comps.includes(c.id));  // legacy seed-data fallback
+    // tComps is already computed at top level — use it directly.
+    // barData / radarData for the Scores tab:
     const barData=tComps.map(c=>({name:c.name,avg:parseFloat(getAvg(tour.id,c.id).toFixed(2))})).sort((a,b)=>b.avg-a.avg);
     const radarColors=[iOS.green,iOS.blue,iOS.orange];
+    // Radar: normalize star values (0-5) → 0-10 for consistent axis range
     const radarData=KSD.map(k=>{
       const entry={subject:k.label};
       tComps.forEach(c=>{
         const allS=tour.contacts.map(tc=>scores[tour.id]?.[tc.id]?.[c.id]??{});
-        const vals=allS.map(s=>s[k.id]??0);
+        const vals=allS.map(s=>(s[k.id]??0)*2); // ×2: stars(0-5) → 0-10
         entry[c.name]=vals.length>0 ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
       });
       return entry;
@@ -3116,9 +3361,10 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                     const avg=getAvg(tour.id,c.id);
                     const col=avg>=7.5?iOS.green:avg>=5?iOS.orange:iOS.red;
                     const allS=tour.contacts.map(tc=>scores[tour.id]?.[tc.id]?.[c.id]??{});
+                    // dimAvg: normalize star values (0-5) → 0-10 for display
                     const dimAvg={};
                     KSD.forEach(k=>{
-                      const vs=allS.map(s=>s[k.id]??0);
+                      const vs=allS.map(s=>(s[k.id]??0)*2); // ×2: stars→0-10
                       dimAvg[k.id]=vs.length>0?vs.reduce((a,b)=>a+b,0)/vs.length:0;
                     });
                     return (
@@ -3137,16 +3383,18 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
                         {/* KSD mini bars — 2-col grid */}
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 12px"}}>
                           {KSD.map(k=>{
-                            const val=dimAvg[k.id];
+                            const val=dimAvg[k.id]; // 0-10 normalized
                             const contribution=(W[k.id]/100)*val;
-                            const barCol=val>=7?iOS.green:val>=4?iOS.orange:iOS.red;
+                            const barCol=val>=7?iOS.green:val>=4?iOS.orange:val>0?iOS.red:iOS.label4;
                             return (
                               <div key={k.id}>
                                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                                   <span style={{...T.caption2,color:iOS.label2,display:"flex",alignItems:"center",gap:3}}>
-                                  <Icon name={k.icon} size={10} color={iOS.label2}/>{k.label}
-                                </span>
-                                  <span style={{...T.caption2,color:barCol,fontWeight:600}}>{contribution.toFixed(2)}</span>
+                                    <Icon name={k.icon} size={10} color={iOS.label2}/>{k.label}
+                                  </span>
+                                  <span style={{...T.caption2,color:barCol,fontWeight:600}}>
+                                    {val>0 ? contribution.toFixed(2) : "—"}
+                                  </span>
                                 </div>
                                 <div style={{height:4,borderRadius:2,background:iOS.bg4,overflow:"hidden"}}>
                                   <div style={{height:"100%",width:`${(val/10)*100}%`,background:barCol,borderRadius:2,transition:"width .3s ease"}}/>

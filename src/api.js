@@ -47,6 +47,28 @@ async function req(path, opts = {}) {
   return json;
 }
 
+/* ── Multipart/form-data wrapper (for media uploads) ── */
+async function reqFormData(path, formData) {
+  // Do NOT set Content-Type — browser sets it with boundary for multipart
+  const headers = { Accept: "application/json" };
+  if (_token) headers["Authorization"] = `Bearer ${_token}`;
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  let json;
+  try { json = await res.json(); } catch { json = {}; }
+
+  if (!res.ok) {
+    const msg = json.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return json;
+}
+
 /* ═══════════════════════════════════════════════════════
    AUTH
 ═══════════════════════════════════════════════════════ */
@@ -448,6 +470,50 @@ export async function getCompScores(tourId, compId) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   TOUR MEDIA
+═══════════════════════════════════════════════════════ */
+
+/**
+ * GET /tours/{tour}/media
+ * Optional params: { type, tour_comp_id }
+ */
+export async function getTourMedia(tourId, params = {}) {
+  const cleaned = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v != null && v !== ""),
+  );
+  const qs = new URLSearchParams(cleaned).toString();
+  const json = await req(`/tours/${tourId}/media${qs ? "?" + qs : ""}`);
+  return json.data || [];
+}
+
+/**
+ * POST /tours/{tour}/media  (multipart/form-data)
+ * type: "photo" | "video" | "note" | "audio" | "document"
+ * file: File object (for photo/video/audio/document)
+ * content: string (for note type)
+ * tour_comp_id: schedule slot ID integer
+ * caption?: string
+ */
+export async function uploadTourMedia(tourId, { type, file, content, tour_comp_id, caption }) {
+  const fd = new FormData();
+  fd.append("type", type);
+  if (file) fd.append("file", file);
+  if (content != null) fd.append("content", content);
+  if (tour_comp_id != null) fd.append("tour_comp_id", String(tour_comp_id));
+  if (caption) fd.append("caption", caption);
+  const json = await reqFormData(`/tours/${tourId}/media`, fd);
+  return json.data;
+}
+
+/**
+ * DELETE /tours/{tour}/media/{media}
+ */
+export async function deleteTourMedia(tourId, mediaId) {
+  const json = await req(`/tours/${tourId}/media/${mediaId}`, { method: "DELETE" });
+  return json.data;
+}
+
+/* ═══════════════════════════════════════════════════════
    GEOFENCES
 ═══════════════════════════════════════════════════════ */
 
@@ -737,6 +803,13 @@ export function normalizeTour(apiTour) {
     }
   });
 
+  // compSlotMap: building.id (string) → schedule slot id (string)
+  // Used for API calls that need the tour_comp_id (schedule slot ID, not building ID)
+  const compSlotMap = {};
+  compSlots.forEach(s => {
+    if (s.building) compSlotMap[String(s.building.id)] = String(s.id);
+  });
+
   // Format tour date for display
   let dateDisplay = "TBD";
   if (apiTour.date) {
@@ -760,6 +833,8 @@ export function normalizeTour(apiTour) {
     // comps: array of building IDs (strings) that are comp-type schedule slots
     comps: compSlots.map(s => String(s.building.id)),
     times,
+    // Maps building ID → schedule slot ID (tour_comp_id) for API scoring/media calls
+    compSlotMap,
     // All attendees (project contacts + tour attendees)
     contacts: [...projContacts, ...attendees],
     // Full schedule for Map / timeline display
