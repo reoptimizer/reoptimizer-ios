@@ -622,6 +622,36 @@ function Splash({onGo}) {
 /* ═══════════════════════════════════════════════════════
    LOGIN
 ═══════════════════════════════════════════════════════ */
+
+// ── Dev shortcuts — only shown in development (import.meta.env.DEV) ──
+// Update passwords below to match your staging account credentials.
+const DEV_USERS = [
+  {
+    label: "Broker",
+    email: "richard.boccard+broker@reoptimizer.com",
+    password: "",          // ← fill in broker password
+    mode: "broker",
+    color: "#0A84FF",
+    initials: "BR",
+  },
+  {
+    label: "User",
+    email: "richard.boccard@reoptimizer.com",
+    password: "",          // ← fill in user password
+    mode: "broker",
+    color: "#30D158",
+    initials: "US",
+  },
+  {
+    label: "Guest",
+    email: "richard.boccard+guest1@reoptimizer.com",
+    password: null,        // Guest uses OTP — no password needed
+    mode: "otp_request",
+    color: "#FF9F0A",
+    initials: "GU",
+  },
+];
+
 function Login({onLogin}) {
   // mode: "broker" (email+password) | "otp_request" | "otp_verify"
   const [mode, setMode] = useState("broker");
@@ -632,6 +662,34 @@ function Login({onLogin}) {
   const [loading, setLoading] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [sent, setSent] = useState(false);
+
+  /* ── Dev shortcut: one-tap login ── */
+  const devLogin = async (devUser) => {
+    setErr("");
+    if (devUser.mode === "otp_request") {
+      // Guest / attendee — pre-fill email and switch to OTP request screen
+      setEmail(devUser.email);
+      setMode("otp_request");
+      return;
+    }
+    // Broker / user — attempt full login immediately
+    if (!devUser.password) {
+      // Password not configured yet — just pre-fill the fields
+      setEmail(devUser.email);
+      setPass("");
+      setErr("Enter password for " + devUser.email);
+      return;
+    }
+    setLoading(true);
+    try {
+      const { user, user_type, attendee } = await loginBroker(devUser.email, devUser.password);
+      onLogin(normalizeUser(user, user_type, attendee));
+    } catch(e) {
+      setEmail(devUser.email);
+      setPass(devUser.password);
+      setErr(e.message || "Login failed. Check dev credentials.");
+    } finally { setLoading(false); }
+  };
 
   /* ── Broker login ── */
   const submitBroker = async () => {
@@ -785,6 +843,71 @@ function Login({onLogin}) {
           />
         </div>
       </div>
+
+      {/* ── DEV SHORTCUTS (development only) ── */}
+      {import.meta.env.DEV && (
+        <div style={{marginTop:32}}>
+          {/* Header */}
+          <div style={{
+            display:"flex", alignItems:"center", gap:8, marginBottom:10,
+          }}>
+            <div style={{flex:1, height:"0.5px", background:iOS.separator}}/>
+            <div style={{
+              background:`${iOS.orange}20`,
+              border:`0.5px solid ${iOS.orange}44`,
+              borderRadius:6, padding:"3px 8px",
+              display:"flex", alignItems:"center", gap:5,
+            }}>
+              <span style={{fontSize:11}}>🛠️</span>
+              <span style={{...T.caption2, color:iOS.orange, fontWeight:700, letterSpacing:".06em",
+                textTransform:"uppercase"}}>Dev Shortcuts</span>
+            </div>
+            <div style={{flex:1, height:"0.5px", background:iOS.separator}}/>
+          </div>
+
+          {/* User buttons */}
+          <div style={{display:"flex", gap:8}}>
+            {DEV_USERS.map(u => (
+              <button key={u.label}
+                onClick={() => devLogin(u)}
+                disabled={loading}
+                className="pressable"
+                style={{
+                  flex:1, borderRadius:12,
+                  background:iOS.bg2,
+                  border:`0.5px solid ${u.color}44`,
+                  cursor:"pointer", padding:"10px 6px",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:6,
+                  opacity: loading ? 0.5 : 1,
+                }}>
+                {/* Avatar */}
+                <div style={{
+                  width:36, height:36, borderRadius:10,
+                  background:`${u.color}22`,
+                  border:`1.5px solid ${u.color}55`,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:13, fontWeight:700, color:u.color,
+                  letterSpacing:"-.5px",
+                }}>{u.initials}</div>
+                {/* Label */}
+                <span style={{...T.caption2, color:iOS.label, fontWeight:600}}>{u.label}</span>
+                {/* Mode badge */}
+                <span style={{
+                  fontSize:9, color:u.mode==="otp_request" ? iOS.orange : u.color,
+                  fontWeight:500, letterSpacing:".04em",
+                }}>
+                  {u.mode==="otp_request" ? "OTP" : u.password ? "Auto" : "Fill"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Hint */}
+          <div style={{...T.caption2, color:iOS.label4, textAlign:"center", marginTop:8}}>
+            Only visible in development — update passwords in DEV_USERS
+          </div>
+        </div>
+      )}
     </div>
   );
 }
