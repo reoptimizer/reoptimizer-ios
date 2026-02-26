@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   loginBroker, requestOtp, verifyOtp, logout as apiLogout,
-  getSites, getSite, getBuilding, getProjects, getProject, getComps, getTours, getDashboard,
+  getSites, getSite, getBuilding, getProjects, getProject, getComps, getTours, getTour, getDashboard,
   submitCompScores, getCompScores, setToken, getToken,
   getTourKSDs, getTourMedia, uploadTourMedia, deleteTourMedia,
   normalizeSite, normalizeBuilding, normalizeProject, normalizeComp, normalizeTour, normalizeUser, normalizeDashboard,
@@ -2468,6 +2468,22 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
   useEffect(()=>{ setTourTab("properties"); },[activeTour]);
   useEffect(()=>{ setCompTab("scoring"); },[activeComp]);
 
+  // Lazy-fetch full tour detail (with schedule) when a tour is opened.
+  // The /tours list endpoint omits schedule — only /tours/{id} includes it.
+  useEffect(()=>{
+    if(!activeTour) return;
+    const t=tours.find(x=>x.id===activeTour);
+    if(!t) return;
+    // Skip if already have schedule data
+    if(t.schedule && t.schedule.length>0) return;
+    const tourApiId=t._apiId||parseInt(t.id)||t.id;
+    getTour(tourApiId).then(raw=>{
+      if(!raw) return;
+      const full=normalizeTour(raw);
+      setTours(prev=>prev.map(x=>x.id===activeTour?{...x,...full}:x));
+    }).catch(err=>console.warn("[REopt] Tour detail fetch failed:",err));
+  },[activeTour]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch KSDs from API when a tour is opened
   useEffect(()=>{
     if(!activeTour) return;
@@ -3204,12 +3220,12 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           <button className="pressable"
             onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
             style={{
-              flex:1, padding:"9px 4px", border:"none", borderRadius:12,
+              flex:1, padding:"9px 4px", borderRadius:12,
+              border: isRecording ? `1px solid ${iOS.red}66` : "1px solid transparent",
               background: isRecording ? `${iOS.red}22` : iOS.bg3,
               color:iOS.label, fontSize:11, fontWeight:600,
               cursor:"pointer", display:"flex", flexDirection:"column",
               alignItems:"center", gap:4,
-              border: isRecording ? `1px solid ${iOS.red}66` : "1px solid transparent",
             }}>
             <div style={{width:30,height:30,borderRadius:9,
               background: isRecording ? `${iOS.red}33` : `${iOS.orange}20`,
@@ -3606,6 +3622,20 @@ function Tours({user, tours, setTours, projects, comps, toast}) {
           <span style={{fontSize:22,fontWeight:300}}>+</span> New
         </button>:null}/>
       <div style={{flex:1,overflowY:"auto",padding:"0 14px 20px"}}>
+        {tours.length===0 && (
+          <div style={{textAlign:"center",padding:"64px 24px",color:iOS.label3}}>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+              <div style={{width:56,height:56,borderRadius:16,background:`${iOS.blue}18`,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="map" size={28} color={iOS.blue}/>
+              </div>
+            </div>
+            <div style={{...T.headline,marginBottom:6,color:iOS.label}}>No Tours Yet</div>
+            <div style={{...T.footnote,color:iOS.label2}}>
+              {user.role==="guest" ? "You have no upcoming tours." : "Create a tour to get started."}
+            </div>
+          </div>
+        )}
         <Section>
           {tours.map((t,i)=>{
             // Use projectName from API; fall back to looking up in projects array
